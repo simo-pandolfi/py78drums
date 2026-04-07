@@ -1,0 +1,5 @@
+numpy
+numba
+scipy
+soundfile
+git+https://github.com/gusanthon/pywdf

@@ -1,0 +1,30 @@
+# Cartelle non da pubblicare
+old/
+archive/
+docs/
+ai_log/
+
+# File di backup e intermedi
+*_backup.py
+*_old.py
+*_fixed.py
+*Copia*
+desktop.ini
+old.zip
+
+# File di sviluppo locale
+*.pyc
+__pycache__/
+.venv/
+*.egg-info/
+DEVELOPMENT_LOG.md
+patterns_M252AA.py
+
+# Output generati
+#*.wav
+*.mp3
+#*.png
+*.pdf
+*.raw
+*.plt
+*.log
