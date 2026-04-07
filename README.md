@@ -1,4 +1,4 @@
-# pydrums
+# py78drums
 
 A Python implementation of the **DIY drum machine circuit** from 
 *Nuova Elettronica* n. 60–61 June–July 1978, modelled using Wave Digital Filters (WDF).
