@@ -49,14 +49,16 @@ Sub-circuit C — TR3 collector  (WDF RootRTypeAdaptor)
   Similar to _build_tr4_node() in cymb.py but with an additional port
   for C30 (0.02 uF, collector to GND), which is absent in the cymbal circuit:
 
-      RootRTypeAdaptor([l1, r53, c30, vr9u, tr3_src], _par_scatter)
+      RootRTypeAdaptor([l1, c30, vr9u, tr3_src], _par_scatter)
 
   where:
     l1      = Inductor(L1_val, fs)          100 mH, ideal (no Rser)
-    r53     = Resistor(R53)                 4.7 kOhm  (L1 || R53 to +12V)
     vr9u    = Resistor(VR9U)                25 kOhm  (snare side of VR9 pot)
-    tr3_src = ResistiveVoltageSource(R_SRC) Norton->Thevenin: V_th=gm*v_b*R53,
-              R_th=R53  (r_o >> R53, approximated as ideal current source)
+    tr3_src = ResistiveVoltageSource(R53)   Norton->Thevenin of the collector
+              current gm*v_b in parallel with R53 (4.7 kOhm, L1 || R53 to
+              +12V): V_th = gm*v_b*R53, R_th = R53.  R53 is the physical
+              resistor, carried by the source; it has no separate port.
+              r_o >> R53 is neglected (ideal current source).
 
   Note on Rser: inductors (Coilcraft PCH-45X-107) have Rser=61.7 Ohm.
   Analysis shows this causes < 0.5 dB difference at the L-C30 resonance
@@ -181,7 +183,8 @@ class PE78_Snare:
     R53       = 4_700.0     # [Ohm] collector resistor  (|| L1 to +12V)
     C30       = 0.02e-6     # [F]   collector resonance cap (node_C -> GND)
     #                               f_res = 1/(2pi*sqrt(L1*C30)) = 3559 Hz
-    #                               Q ~ R53/sqrt(L1/C30) ~ 2.1  (heavily damped)
+    #                               Q = (R53||VR9U)/sqrt(L1/C30) ~ 1.8 at
+    #                               VR9U = 25 kOhm, ~ 2.0 at 110 kOhm
     C28       = 4.7e-9      # [F]   noise coupling B1 -> base
     hFE       = 200         # [-]   DC current gain
     Vt        = 26e-3       # [V]   thermal voltage at 300 K
@@ -191,7 +194,8 @@ class PE78_Snare:
     # with R_th = R50||R51 = 500 kOhm, V_tgt = LTspice V_base_TR3_ss.
     Is_b      = 7.035e-17   # [A]
 
-    # WDF source impedance for TR3 Thevenin  (mirrors cymb.py R_SRC_TR4)
+    # Internal resistance of the TR3 Thevenin source: the physical R53
+    # (mirrors cymb.py R_SRC_TR4)
     R_SRC_TR3 = R53         # [Ohm]
 
     # Noise
@@ -432,23 +436,26 @@ class PE78_Snare:
         Unlike cymb.py _build_tr4_node(), the snare collector has C30
         (0.02 uF) connected from node_C to GND — absent in the cymbal
         circuit.  C30 creates a resonance with L1 at f_res = 3559 Hz
-        (Q ~ 2.1) that shapes the characteristic "crack" of the snare.
+        (Q ~ 1.8 with VR9U = 25 kOhm) that shapes the characteristic "crack" of the snare.
 
         Structure:
-            RootRTypeAdaptor([l1, r53, c30, vr9u, tr3_src], _par_scatter)
+            RootRTypeAdaptor([l1, c30, vr9u, tr3_src], _par_scatter)
 
         All ports shunt to AC-GND (+12V rail bypassed for small signal).
-        V_col is read from self._r53.wave_to_voltage().
+        R53 is the internal resistance of tr3_src, not a separate port.
+        V_col is read from the VR9U port (parallel junction: every port has
+        the node voltage).  A passive port is used on purpose: with the
+        original pywdf (root R-type compute order, E1) the source port
+        voltage is wrong, while passive ports are correct.
         """
         self._l1      = Inductor(self.L1_val, self.fs)
-        self._r53     = Resistor(self.R53)
         self._c30     = Capacitor(self.C30, self.fs)
         self._vr9u    = Resistor(self.VR9U)
         self._tr3_src = ResistiveVoltageSource(self.R_SRC_TR3)
         self._tr3_src.set_voltage(0.0)
 
         self._tr3_node = RootRTypeAdaptor(
-            [self._l1, self._r53, self._c30, self._vr9u, self._tr3_src],
+            [self._l1, self._c30, self._vr9u, self._tr3_src],
             _par_scatter)
 
     def _step_tr3_collector(self, gm: float, v_b: float) -> float:
@@ -457,16 +464,17 @@ class PE78_Snare:
 
         Norton -> Thevenin conversion:
           V_th = gm * v_b * R_SRC_TR3
-          R_th = R_SRC_TR3  (= R53)
+          R_th = R_SRC_TR3  (= R53, the physical collector resistor)
 
-        R_SRC_TR3 = R53 << r_o (> 100 kOhm) so the approximation is
-        accurate, identical to cymb.py R_SRC_TR4 convention.
+        Exact for the current source gm*v_b in parallel with R53; only
+        r_o (> 100 kOhm, >> R53) is neglected.  Same convention as
+        cymb.py R_SRC_TR4.
 
         Returns TR3 collector voltage V_col [V].
         """
         self._tr3_src.set_voltage(gm * v_b * self.R_SRC_TR3)
         self._tr3_node.compute()
-        return self._r53.wave_to_voltage()
+        return self._vr9u.wave_to_voltage()   # node voltage, see _build_tr3_node
 
     # ------------------------------------------------------------------
     # Private: C31 bilinear IIR HP coefficients

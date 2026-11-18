@@ -31,7 +31,9 @@ Sub-circuit A — Envelope node (ENV):
   r_pi_port     : TR4 base impedance (updated each sample; see below)
 
 Sub-circuit B — TR4 collector:
-  RootRTypeAdaptor([l2, r54, vr9l, tr4_src])
+  RootRTypeAdaptor([l2, vr9l, tr4_src])
+  R54 is the internal resistance of tr4_src (Norton->Thevenin of the
+  collector current gm*v_b in parallel with R54), not a separate port.
   Driven by V_env from sub-circuit A (one-sample delay).
 
 MR noise path — D9 nonlinearity
@@ -452,7 +454,7 @@ class PE78_Cymbals_Maracas:
 
         self._tr4_src.set_voltage(gm * self._v_base * self.R_SRC_TR4)
         self._tr4_node.compute()
-        return self._r54.wave_to_voltage()
+        return self._vr9l.wave_to_voltage()   # node voltage, see _build_tr4_node
 
     # -----------------------------------------------------------------------
     # Private: ENV node construction
@@ -559,18 +561,21 @@ class PE78_Cymbals_Maracas:
     # -----------------------------------------------------------------------
     def _build_tr4_node(self):
         """
-        TR4 collector = RootRTypeAdaptor([l2, r54, vr9l, tr4_src])
+        TR4 collector = RootRTypeAdaptor([l2, vr9l, tr4_src])
         All ports shunt to AC-GND (+12 V bypassed).
-        V_col is read from r54.wave_to_voltage().
+        R54 is the internal resistance of tr4_src, not a separate port.
+        V_col is read from the VR9L port (parallel junction: every port has
+        the node voltage).  A passive port is used on purpose: with the
+        original pywdf (root R-type compute order, E1) the source port
+        voltage is wrong, while passive ports are correct.
         """
         self._l2      = Inductor(self.L2_val, self.fs)
-        self._r54     = Resistor(self.R54)
         self._vr9l    = Resistor(self.VR9L)
         self._tr4_src = ResistiveVoltageSource(self.R_SRC_TR4)
         self._tr4_src.set_voltage(0.0)
 
         self._tr4_node = RootRTypeAdaptor(
-            [self._l2, self._r54, self._vr9l, self._tr4_src],
+            [self._l2, self._vr9l, self._tr4_src],
             _par_scatter)
 
     # -----------------------------------------------------------------------
