@@ -3,6 +3,7 @@ old/
 archive/
 docs/
 ai_log/
+out/
 
 # File di backup e intermedi
 *_backup.py
