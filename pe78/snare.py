@@ -34,7 +34,8 @@ Sub-circuit B — TR3 base node  (Ebers-Moll Newton-Raphson)
     · TR3 Vbe junction    (Ebers-Moll nonlinearity)
   C28 noise coupling is handled separately as a bilinear HP IIR.
 
-  With G_fixed = 1/R50 + 1/R51  and  I_fixed = -V_env/R50
+  V_env is the Thevenin voltage of R50/R51 seen by the base, with
+  G_fixed = 1/R50 + 1/R51 = 1/R_th  and  I_fixed = -V_env * G_fixed = -V_C27/R50
   (negative: envelope pushes current INTO the node), the KCL equation is:
 
       f(V)  = V * G_fixed + I_fixed + Is_b * (exp(V/Vt) - 1) = 0
@@ -349,7 +350,9 @@ class PE78_Snare:
             f'(V) = G_fixed + Is_b * exp(V/Vt) / Vt  > 0
 
         G_fixed = 1/R50 + 1/R51
-        I_fixed = -V_env / R50   (envelope injects current into node)
+        I_fixed = -V_env * G_fixed = -V_C27 / R50
+                                 (V_env is the Thevenin voltage of R50/R51;
+                                  the envelope injects current into the node)
 
         Structurally identical to cymb.py _solve_env_ebers_moll(), with
         the two-resistor Thevenin (R50, R51) replacing the multi-branch
@@ -358,7 +361,7 @@ class PE78_Snare:
         Returns  (V_base, gm, r_pi).
         """
         G_fixed = 1.0 / self.R50 + 1.0 / self.R51
-        I_fixed = -V_env / self.R50     # envelope pushes current in
+        I_fixed = -V_env * G_fixed      # Norton of the R50/R51 Thevenin (= -V_C27/R50)
 
         Vt   = self.Vt
         Is_b = self.Is_b
