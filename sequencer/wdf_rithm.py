@@ -50,14 +50,16 @@ BPM_DEFAULT  = 100
 STEPS        = 32
 HIT_SAMPLES  = 960       # Trigger pulse duration ≈ 20 ms @ 48 kHz
 
-# Instrument gain on master bus (relative balancing)
+# Instrument gain on master bus (relative balancing).
+# Tonal voices: 0.3046 = (R13/3.9M) / (1/5 * 10k/(78k + 10k)) keeps the mix
+# unchanged after the twin-T output fix (pre-amp input, same node as sd/cymb).
 GAIN = {
-    'bd':    1.00,
+    'bd':    0.3046,
     'sd':    6.00,
-    'hb':    1.00,
-    'lb':    1.00,
-    'cd':    1.00,
-    'cl':    1.00,
+    'hb':    0.3046,
+    'lb':    0.3046,
+    'cd':    0.3046,
+    'cl':    0.3046,
     'cymb':  10.00,
 }
 

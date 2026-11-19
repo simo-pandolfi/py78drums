@@ -108,7 +108,21 @@ class TonalDrum(BaseWDFDrum):
     Tonal drum voice — EdgeDetector + TwinTDrum (damped sinusoidal oscillator).
 
     Used for: Bass Drum, Hi Bongo, Low Bongo, Claves, Conga.
+
+    Output: voltage on the pre-amp input (VR10 = RLOAD), like the noise voices.
+    The N_TONAL tonal stages are joined through their own R41 before the
+    single C21, which feeds RLOAD. With one voice active and the others at AC
+    ground (low-impedance gate outputs), the joined node is a Thevenin source
+    (V_n3 / N_TONAL, R41 / N_TONAL):
+        V_out = V_n3/N * RLOAD/(R41/N + RLOAD) * s*tau/(1 + s*tau)
+        tau   = C21 * (R41/N + RLOAD)
+    Linear, so voices played together add. The loading of the noise voices
+    on the bus (R55/C31) is not modelled.
     """
+
+    C21     = 0.22e-6   # [F]   coupling capacitor, shared by the tonal voices
+    RLOAD   = 10e3      # [Ohm] pre-amp input (VR10), as Rload in snare.py
+    N_TONAL = 5         # tonal stages joined before C21 (bd, cd, hb, lb, cl)
 
     def __init__(self, fs, edge_r, edge_c, kick_r, kick_c, kick_vr4, kick_load):
         """
@@ -132,6 +146,17 @@ class TonalDrum(BaseWDFDrum):
         self.detector = EdgeDetector(fs, edge_r, edge_c)
         self.voice    = TwinTDrum(fs, kick_r, kick_c, kick_vr4, kick_load)
 
+        # C21 output coupling: bilinear HP (same form as snare.py C31)
+        r_th  = float(kick_load) / self.N_TONAL
+        tau_p = self.C21 * (r_th + self.RLOAD)
+        tau_z = self.C21 * self.RLOAD
+        k     = 2.0 * fs
+        a0    = 1.0 + k * tau_p
+        self._b_c21 = (k * tau_z / a0, -k * tau_z / a0)
+        self._a1_c21 = (1.0 - k * tau_p) / a0
+        self._c21_x = 0.0
+        self._c21_y = 0.0
+
     def tick(self, v_trigger, noise_sample=0.0):
         """
         Parameters
@@ -140,9 +165,19 @@ class TonalDrum(BaseWDFDrum):
             Gate voltage (4.5 V = on, 0 V = off).
         noise_sample : float
             Unused; present for interface uniformity.
+
+        Returns
+        -------
+        float
+            Voltage on the pre-amp input [V] (see class docstring).
         """
         v_spike = self.detector.process_sample(v_trigger)
-        return self.voice.process_sample(v_spike)
+        x = self.voice.process_sample(v_spike) / self.N_TONAL    # V_th of the joined node
+        y = (self._b_c21[0] * x + self._b_c21[1] * self._c21_x
+             - self._a1_c21 * self._c21_y)
+        self._c21_x = x
+        self._c21_y = y
+        return y
 
     def set_decay(self, vr4: float):
         """
@@ -168,7 +203,7 @@ BDO_PARAMS = {
     'kick_r':    [68000, 68000, 10000],          # R11, R12, R16
     'kick_c':    [150e-9, 47e-9, 47e-9],         # C5, C6, C7
     'kick_vr4':  150000,                         # VR4 (r_bias = R10+VR4 = 300 kOhm)
-    'kick_load': 3900000,                        # R41
+    'kick_load': 390000,                         # R41 (390 kOhm, Fig. 7)
 }
 
 CONGA_PARAMS = {
@@ -177,7 +212,7 @@ CONGA_PARAMS = {
     'kick_r':    [68000, 68000, 10000],
     'kick_c':    [56e-9, 18e-9, 18e-9],
     'kick_vr4':  150000,
-    'kick_load': 3900000,
+    'kick_load': 390000,
 }
 
 HBONGO_PARAMS = {
@@ -186,7 +221,7 @@ HBONGO_PARAMS = {
     'kick_r':    [68000, 68000, 10000],
     'kick_c':    [33e-9, 10e-9, 10e-9],
     'kick_vr4':  150000,
-    'kick_load': 3900000,
+    'kick_load': 390000,
 }
 
 LBONGO_PARAMS = {
@@ -195,7 +230,7 @@ LBONGO_PARAMS = {
     'kick_r':    [68000, 68000, 10000],
     'kick_c':    [47e-9, 15e-9, 15e-9],
     'kick_vr4':  150000,
-    'kick_load': 3900000,
+    'kick_load': 390000,
 }
 
 CLAVES_PARAMS = {
@@ -204,5 +239,5 @@ CLAVES_PARAMS = {
     'kick_r':    [68000, 68000, 10000],
     'kick_c':    [4.7e-9, 1.5e-9, 1.5e-9],
     'kick_vr4':  150000,
-    'kick_load': 3900000,
+    'kick_load': 390000,
 }

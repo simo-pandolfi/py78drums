@@ -232,7 +232,8 @@ class TwinTDrum:
         Returns
         -------
         float
-            Voltage at NAND_OUT (n3) read through R41 (port 8).
+            Voltage at NAND_OUT (n3) = voltage across R41 (port 8, R41 to
+            ground: the bus voltage is negligible against V_n3).
             Note: output starts with a negative half-cycle (inverting gate).
             AC coupling downstream makes polarity perceptually irrelevant.
         """
@@ -255,8 +256,11 @@ class TwinTDrum:
         """
         WDF scattering matrix for the R-type adaptor.
 
-        S = 2 * diag(G) * A^T * M^-1 * A - I
+        S = 2 * A^T * M^-1 * A * diag(G) - I     (voltage waves, b = S a)
         M = A * diag(G) * A^T  (passive KCL, corrected for inverter feedback)
+
+        Derivation: each port is a source a_j behind R_j (Norton G_j*a_j);
+        nodes: M v_n = A diag(G) a; port voltages v = A^T v_n; b = 2 v - a.
 
         Matrix A (4 nodes x 9 ports):
           rows : n0=NB_R, n1=NC_C, n2=NAND_IN, n3=NAND_OUT
@@ -285,5 +289,5 @@ class TwinTDrum:
         M[3, 3] += G_inv
         M[3, 2] -= self.a_gain * G_inv     # a_gain < 0 -> increases M[3,2]
 
-        S = 2.0 * np.diag(G) @ A.T @ np.linalg.inv(M) @ A - np.eye(9)
+        S = 2.0 * A.T @ np.linalg.inv(M) @ A @ np.diag(G) - np.eye(9)
         adapter.set_S_matrix(S)
