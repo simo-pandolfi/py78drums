@@ -37,7 +37,7 @@ FS = 48000
 def _solve(model, v_c27):
     """Base voltage for a given C27 voltage, through the model's own path."""
     model._V_c27 = v_c27
-    v_env = model._V_c27 * model.R51 / (model.R50 + model.R51)   # as _step_envelope
+    v_env = model._V_c27 * model.R51 / (model.R50 + model.R51)   # as _step_frontend
     model._V_base = 0.6   # warm start, as from the previous sample (see note)
     v_base, _, _ = model._solve_base_ebers_moll(v_env)
     return v_base

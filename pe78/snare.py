@@ -12,20 +12,46 @@ Architecture overview
 The circuit is partitioned into three sub-circuits, following
 the same methodology used in cymb.py (PE78_Cymbals_Maracas).
 
-Sub-circuit A — Envelope  (IIR scalar, not WDF)
-  TR5 (BC108B) emitter follower buffers the SNARE_DRUM trigger.
-  D7  (1N4148) charges C27 when V_emitter > V_C27 (ideal diode, no 0.7V
-  drop, consistent with the D9 treatment in cymb.py).
+Sub-circuit A — Trigger front end and envelope  (WDF, R-type root with
+                 Newton on the nonlinear ports)
+  Schematic (PE 1978 page 24; trigger line confirmed by the user):
 
-    tau_on  = R49 * C27                    ≈ 0.110 ms  (fast attack)
-    tau_off = (R50 + R51) * C27            = 100   ms  (slow decay)
+    M253 pin 5 ──┬──[C22 0.1u]──┬── TR5 base (BC108B; BC547B card)
+                 │              └──[R48 22k]── GND
+                 └──[D6 →]── HB line (pin 6) ──[R21 12k]── GND
+    TR5 collector: +5 V rail (7805; 4.7 V on load per the schematic)
+    TR5 emitter ──[D7 →]──[R49 2.2k]──┬── C27 0.05u ── GND
+                                      └──[R50 1M]──> TR3 base (sub-circuit B)
 
-  tau_off is computed with TR3 off, which gives the maximum decay time.
-  When TR3 is conducting r_pi loads R50+R51 and the effective tau is
-  shorter (~51 ms at full drive).  This approximation matches the one
-  used in cymb.py for C23/C24 and is accepted as a known limitation.
+  The M253 output is a switched source (V_ON, R_ON) / (0 V, R_OFF), as in
+  cymb.py. C22 and R48 differentiate the gate: TR5 conducts only for the
+  first milliseconds after the rising edge, so the C27 peak and the decay do
+  not depend on the gate length. After the gate C22 discharges through D6
+  and R21 (the input of the HB edge detector, which every snare hit also
+  triggers): without that path the next hit would not recharge C27. C12 and
+  the rest of the HB edge detector are neglected (C27 peak -0.3%, measured).
 
-  V_env = V_C27 * R51 / (R50 + R51)   [V]   (R50 = R51 = 1 MOhm)
+  Linear part: leaves M253 source, C22, R48, R21, R49, C27 and the R50 branch
+  (a resistive source R50 with V = V_base_TR3 of the previous sample), joined
+  by an R-type junction (nodes v1, vb, vd, vc, h). Nonlinear ports at the
+  root:
+    A  vb -> vd : TR5 base-emitter junction in series with D7, current Ib
+    B  vd -> GND: collector current of TR5 entering vd from the rail, -Ic
+    D6 v1 -> h
+  Unknowns of the Newton iteration: w = V_BE of TR5 and v_D6. With
+    Ie = IS*(1 + 1/BF)*(exp(w/(NF*Vt)) - 1),  Ib = Ie/(BF+1),  Ic = Ie - Ib,
+    v_A = w + N*Vt*ln(1 + Ie/Is_D)    (D7 carries Ie; always defined)
+  the port voltages are matched to the Thevenin of the junction,
+  v_N = H*b - Z*i_N (b: reflected waves of the leaves). The emitter node is
+  eliminated, so the junction is never singular. Then the node voltages are
+  computed and the incident waves a = 2*v - b are sent to the leaves.
+  TR5 is forward active only: its base stays below the collector rail.
+
+  The R50 branch decouples the TR3 base by one sample. The coupling goes
+  through C27 (port resistance 1/(2*fs*C27) = 208 Ohm at 48 kHz against
+  1 MOhm): error on V_C27 <= 3e-4 V against the simultaneous solution.
+
+  V_env = V_C27 * R51 / (R50 + R51)   [V]   (input of sub-circuit B)
 
 Sub-circuit B — TR3 base node  (Ebers-Moll Newton-Raphson)
   The base node is a Thevenin junction of:
@@ -93,24 +119,23 @@ Ebers-Moll calibration
   Recalibrate against LTspice once the reference waveform is available.
 
 Non-linearity separability
-  NL1 (TR5): upstream, no instantaneous coupling to NL2/NL3.
-  NL2 (D7):  couples to TR3 only through C27 state (one-sample delay),
-             algebraically separable.
-  NL3 (TR3): no instantaneous feedback to NL1/NL2.
-  Sequential (partitioned) treatment is causally correct.
-  Werner (2015) multi-NL and Werner (2018) MNA are not required.
+  D6, TR5 and D7 are solved together (sub-circuit A). TR3 base (B) takes
+  C27 of the current sample and gives C27 its base current through R50 one
+  sample later (see A). The collector (C) does not act back on the base.
 
-Known approximations (consistent with cymb.py)
-  D7 forward voltage drop ignored (ideal diode).
-  TR5 modelled as static emitter follower V_E = V_B - Vbe.
-  tau_off fixed at 100 ms (TR3-off approximation; actual ~51 ms active).
+Known approximations
+  TR5: Ebers-Moll forward active (IS, NF, BF); no ISE, RB, RE, capacitances.
+  1N4148: Rs and capacitances neglected.
+  HB edge detector beyond R21 not modelled.
   Inductor Rser = 61.7 Ohm not modelled.
 
 Component values  (PE 1978 Fig. 6, verified on LTspice ASC)
-  Trigger : C22=0.1uF, R48=22kOhm, V_trigger=4.5V (M253 output)
-  TR5     : BC108B emitter follower, collector to +5 V (V5 in the .asc);
-            modelled as V_E = max(0, V_trigger - Vbe5), supply not modelled
-  Envelope: R49=2.2kOhm, C27=0.05uF, R50=1MOhm, R51=1MOhm
+  Trigger : M253 4.5 V / 350 Ohm on, 10 MOhm off; C22=0.1uF, R48=22kOhm;
+            D6 1N4148 to the HB line, R21=12kOhm
+  TR5     : BC108B (BC547B card in the .asc), collector to the +5 V rail
+            (7805, 4.7 V on load per the schematic; V5 = 5 V in the .asc);
+            the rail value does not enter the model (forward active only)
+  Envelope: D7 1N4148, R49=2.2kOhm, C27=0.05uF, R50=1MOhm, R51=1MOhm
   TR3     : BC108B, hFE=200, Vt=26mV
   Noise   : C28=4.7nF (node N -> base), B1 = -white(2e6*time)*4uA into N,
             VR8U=90kOhm (N to +12V; VR8 = 100 kOhm trimmer)
@@ -146,6 +171,15 @@ def _par_scatter(adaptor):
     adaptor.Rp = 1.0 / Gt
 
 
+def _lexp(x, xm=80.0):
+    """exp(x) and its derivative, continued linearly above xm (Newton safety)."""
+    if x <= xm:
+        e = np.exp(x)
+        return e, e
+    e = np.exp(xm)
+    return e * (1.0 + x - xm), e
+
+
 # ---------------------------------------------------------------------------
 # Core model
 # ---------------------------------------------------------------------------
@@ -164,6 +198,7 @@ class PE78_Snare:
 
     Observable state (updated after each process_sample call):
         _V_c27  : envelope capacitor voltage [V]
+        _V_b5   : TR5 base voltage [V]
         _V_base : TR3 base voltage (NR solution) [V]
         _V_col  : TR3 collector voltage [V]
     """
@@ -172,8 +207,23 @@ class PE78_Snare:
     # Physical parameters
     # ------------------------------------------------------------------
 
-    # TR5 emitter follower
-    Vbe5      = 0.65        # [V]   static emitter drop
+    # M253 output (pin 5), as in cymb.py
+    V_ON      = 4.5         # [V]   output when active
+    R_ON      = 350.0       # [Ohm] on-impedance
+    R_OFF     = 10e6        # [Ohm] tri-state impedance
+
+    # Trigger front end
+    C22       = 0.1e-6      # [F]   gate differentiator
+    R48       = 22e3        # [Ohm] TR5 base to GND
+    R21       = 12e3        # [Ohm] HB trigger line to GND (reached through D6)
+    VT_27C    = 25.852e-3   # [V]   kT/q at 27 C (LTspice), for D6, D7, TR5
+    D_IS      = 2.52e-9     # [A]   1N4148 (LTspice standard.dio), D6 and D7
+    D_N       = 1.752       # [-]
+    TR5_IS    = 2.39e-14    # [A]   BC547B card (LTspice), used for the BC108B
+    TR5_NF    = 1.008       # [-]
+    TR5_BF    = 294.3       # [-]
+    FE_MAXIT  = 100         # Newton iterations per sample (front end)
+    FE_TOL    = 1e-10       # [V]   Newton step tolerance
 
     # Envelope
     R49       = 2_200.0     # [Ohm] D7 -> node_ENV series resistor
@@ -237,12 +287,14 @@ class PE78_Snare:
         # B1 current per unit of noise_sample [A]
         self.NOISE_AMP = noise_amp(self.fs)
 
-        # Envelope IIR time constants
-        self._tau_on  = self.R49 * self.C27              # ~ 0.110 ms
-        self._tau_off = (self.R50 + self.R51) * self.C27 # = 100 ms
-
-        # Envelope state
-        self._V_c27 = 0.0
+        # Trigger front end and envelope (sub-circuit A)
+        self._on     = False
+        self._V_c27  = 0.0
+        self._V_b5   = 0.0      # TR5 base [V], observable
+        self._fe_w   = 0.0      # Newton warm start: V_BE of TR5 [V]
+        self._fe_v6  = 0.0      # Newton warm start: V of D6 [V]
+        self.fe_iter_max = 0    # largest number of Newton iterations so far
+        self._build_frontend()
 
         # NR warm-start state
         self._V_base = 0.0
@@ -299,8 +351,8 @@ class PE78_Snare:
         if noise_sample is None:
             noise_sample = np.random.standard_normal()
 
-        # 1. Envelope: TR5 follower + D7 + C27 IIR
-        V_env = self._step_envelope(v_trigger)
+        # 1. Trigger front end and C27 (WDF, Newton on D6, TR5, D7)
+        V_env = self._step_frontend(v_trigger)
 
         # 2. TR3 base: Ebers-Moll NR
         V_base, gm, r_pi = self._solve_base_ebers_moll(V_env)
@@ -326,27 +378,128 @@ class PE78_Snare:
     # Private: sub-circuit A — envelope
     # ------------------------------------------------------------------
 
-    def _step_envelope(self, v_trigger: float) -> float:
+    # Nodes of the front-end junction and leaf/port incidence: (node+, node-)
+    _FE_NODES = ("v1", "vb", "vd", "vc", "h")
+
+    def _build_frontend(self) -> None:
         """
-        Advance C27 by one sample.
+        Leaves (pywdf one-ports) and nonlinear ports of sub-circuit A.
 
-        TR5 is a static emitter follower: V_E = max(0, V_trigger - Vbe5).
-        D7 is ideal (no forward drop, consistent with cymb.py):
-          V_E > V_C27  ->  charges   C27 toward V_E  via tau_on
-          V_E <= V_C27 ->  discharges C27 toward 0   via tau_off
-
-        Returns  V_env = V_C27 * R51 / (R50 + R51)  [V].
+        Leaf k between nodes (p, n) is a Thevenin source: v = b_k + R_k*i_k,
+        b_k its reflected wave, i_k the current from p into the leaf.
         """
-        V_emitter = max(0.0, v_trigger - self.Vbe5)
+        self._m253 = ResistiveVoltageSource(self.R_OFF)
+        self._c22  = Capacitor(self.C22, self.fs)
+        self._r48  = Resistor(self.R48)
+        self._r21  = Resistor(self.R21)
+        self._r49  = Resistor(self.R49)
+        self._c27  = Capacitor(self.C27, self.fs)
+        self._r50  = ResistiveVoltageSource(self.R50)   # V = V_base_TR3[n-1]
+        V1, VB, VD, VC, H = range(5)
+        self._fe_leaves = [
+            (self._m253, V1, -1),
+            (self._c22,  V1, VB),
+            (self._r48,  VB, -1),
+            (self._r21,  H,  -1),
+            (self._r49,  VD, VC),
+            (self._c27,  VC, -1),
+            (self._r50,  VC, -1),
+        ]
+        ports = [(VB, VD), (VD, -1), (V1, H)]          # A, B, D6
+        n = len(self._FE_NODES)
 
-        if V_emitter > self._V_c27:
-            tau, v_target = self._tau_on,  V_emitter
+        def inc(p, q):
+            col = np.zeros(n)
+            col[p] = 1.0
+            if q >= 0:
+                col[q] = -1.0
+            return col
+
+        self._fe_AL = np.array([inc(p, q) for _, p, q in self._fe_leaves]).T
+        self._fe_AN = np.array([inc(p, q) for p, q in ports]).T
+        self._fe_cache = {}
+
+    def _frontend_matrices(self):
+        """Junction matrices for the current leaf resistances (cached)."""
+        R = np.array([leaf.Rp for leaf, _, _ in self._fe_leaves])
+        key = tuple(R)
+        m = self._fe_cache.get(key)
+        if m is None:
+            AL, AN = self._fe_AL, self._fe_AN
+            Ginv = np.linalg.inv(AL @ np.diag(1.0 / R) @ AL.T)
+            B = AL @ np.diag(1.0 / R)          # source term: B @ b
+            m = (Ginv @ B, Ginv @ AN, AN.T @ Ginv @ B, AN.T @ Ginv @ AN)
+            self._fe_cache[key] = m
+        return m
+
+    def _step_frontend(self, v_trigger: float) -> float:
+        """
+        Advance sub-circuit A by one sample. Returns V_env = V_C27*R51/(R50+R51).
+
+        Newton on (w, v6): w = V_BE of TR5, v6 = voltage of D6. Port currents
+        i = (Ib, -Ic, I_D6); port voltages from the junction v_N = H*b - Z*i.
+        """
+        on = v_trigger > 0.5
+        if on != self._on:
+            self._m253.set_resistance(self.R_ON if on else self.R_OFF)
+            self._on = on
+        self._m253.set_voltage(self.V_ON if on else 0.0)
+        self._r50.set_voltage(self._V_base)
+
+        b = np.array([leaf.propagate_reflected_wave() for leaf, _, _ in self._fe_leaves])
+        Kb, Ki, H, Z = self._frontend_matrices()
+        h = H @ b
+
+        vt_t = self.TR5_NF * self.VT_27C
+        vt_d = self.D_N * self.VT_27C
+        k_e = self.TR5_IS * (1.0 + 1.0 / self.TR5_BF)
+        k_b = 1.0 / (self.TR5_BF + 1.0)
+        w, v6 = self._fe_w, self._fe_v6
+        for it in range(1, self.FE_MAXIT + 1):
+            ex, dex = _lexp(w / vt_t)
+            ie, die = k_e * (ex - 1.0), k_e * dex / vt_t
+            ib, dib = k_b * ie, k_b * die
+            ic, dic = ie - ib, die - dib
+            u = 1.0 + ie / self.D_IS
+            vA = w + vt_d * np.log(u)
+            dvA = 1.0 + vt_d * die / (self.D_IS * u)
+            e6, de6 = _lexp(v6 / vt_d)
+            i6, di6 = self.D_IS * (e6 - 1.0), self.D_IS * de6 / vt_d
+            iN = (ib, -ic, i6)
+            fA = vA - (h[0] - Z[0, 0] * iN[0] - Z[0, 1] * iN[1] - Z[0, 2] * iN[2])
+            f6 = v6 - (h[2] - Z[2, 0] * iN[0] - Z[2, 1] * iN[1] - Z[2, 2] * iN[2])
+            jAw = dvA + Z[0, 0] * dib - Z[0, 1] * dic
+            jA6 = Z[0, 2] * di6
+            j6w = Z[2, 0] * dib - Z[2, 1] * dic
+            j66 = 1.0 + Z[2, 2] * di6
+            det = jAw * j66 - jA6 * j6w
+            dw = -(fA * j66 - jA6 * f6) / det
+            d6 = -(jAw * f6 - j6w * fA) / det
+            dw = min(max(dw, -0.2), 0.2)            # step limit [V]
+            d6 = min(max(d6, -0.2), 0.2)
+            w += dw
+            v6 += d6
+            if abs(dw) < self.FE_TOL and abs(d6) < self.FE_TOL:
+                break
         else:
-            tau, v_target = self._tau_off, 0.0
+            raise RuntimeError("snare front end: Newton did not converge")
+        if it > self.fe_iter_max:
+            self.fe_iter_max = it
+        self._fe_w, self._fe_v6 = w, v6
 
-        alpha        = self._dt / (tau + self._dt)   # backward-Euler
-        self._V_c27 += alpha * (v_target - self._V_c27)
+        # port currents at the solution, node voltages, incident waves
+        ex, _ = _lexp(w / vt_t)
+        ie = k_e * (ex - 1.0)
+        ib = k_b * ie
+        e6, _ = _lexp(v6 / vt_d)
+        iN = np.array([ib, -(ie - ib), self.D_IS * (e6 - 1.0)])
+        v = Kb @ b - Ki @ iN
+        vL = self._fe_AL.T @ v
+        for (leaf, _, _), vk, bk in zip(self._fe_leaves, vL, b):
+            leaf.accept_incident_wave(2.0 * vk - bk)
 
+        self._V_b5  = v[1]
+        self._V_c27 = self._c27.wave_to_voltage()
         return self._V_c27 * (self.R51 / (self.R50 + self.R51))
 
     # ------------------------------------------------------------------

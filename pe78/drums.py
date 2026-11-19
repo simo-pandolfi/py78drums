@@ -18,10 +18,13 @@ Voices:
   sc     Short Cymbal       (CymbDrum,   noise-based)
   mr     Maracas            (CymbDrum,   noise-based)
 
-Note on hb/sd bus sharing:
-  In the M253 sequencer, the Hi Bongo trigger line also drives the Snare Drum.
-  Every HB hit activates both voices simultaneously. If the snare is silent,
-  the cause is almost certainly the snare model, not the sequencer.
+Note on hb/sd trigger sharing:
+  The snare output of the M253 (pin 5) also drives the Hi Bongo trigger line
+  (pin 6) through D6: every SD hit triggers HB as well, an HB hit alone does
+  not trigger the snare. R21 (12 kOhm, HB line to GND) is the path through
+  which C22 of the snare discharges after the gate (see pe78/snare.py). The
+  HB voice is driven with the full gate level; the D6 drop (HB line about
+  4.1 V) and the slow fall of the line after a snare gate are not modelled.
 
 Instrument parameter dictionaries:
   All VR4 values represent the potentiometer alone (not R10+VR4).
