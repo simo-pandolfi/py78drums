@@ -247,7 +247,9 @@ class PE78_Cymbals_Maracas:
 
     # r_pi guard rails
     R_PI_MAX = 10e6    # open-base / cut-off
-    R_PI_MIN = 500.0   # deep-saturation floor
+    R_PI_MIN = 500.0   # numerical floor (Ic ~ 10 mA); the model is linear in
+    #                    the collector (no saturation, no high injection):
+    #                    tests/test_linear_region.py
 
     # -----------------------------------------------------------------------
     def __init__(self, fs: int, vr9l: float = None):
@@ -445,7 +447,6 @@ class PE78_Cymbals_Maracas:
         # Collector current and small-signal parameters
         ex_sol = np.exp(np.clip(V / Vt, -40.0, 40.0))
         Ic     = self.hFE * Is_b * ex_sol
-        Ic     = min(Ic, (self.Vcc - 0.2) / self.R54)
         Ic     = max(Ic, 1e-15)
         gm     = Ic / Vt
         r_pi   = float(np.clip(self.hFE * Vt / Ic, 500.0, 10e6))

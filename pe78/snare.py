@@ -263,7 +263,9 @@ class PE78_Snare:
 
     # r_pi guard rails  (mirrors cymb.py)
     R_PI_MAX  = 10e6        # [Ohm] open-base / cut-off
-    R_PI_MIN  = 500.0       # [Ohm] deep-saturation floor
+    R_PI_MIN  = 500.0       # [Ohm] numerical floor (Ic ~ 10 mA); the model is
+    #                               linear in the collector (no saturation, no
+    #                               high injection): tests/test_linear_region.py
 
     # ------------------------------------------------------------------
     def __init__(self, fs: int, vr9u: float = None, rload: float = None):
@@ -545,7 +547,6 @@ class PE78_Snare:
         # Collector current and small-signal parameters
         ex_sol = np.exp(np.clip(V / Vt, -40.0, 40.0))
         Ic     = self.hFE * Is_b * ex_sol
-        Ic     = min(Ic, (self.Vcc - 0.2) / self.R53)  # saturation clamp
         Ic     = max(Ic, 1e-15)                         # numerical floor
 
         gm    = Ic / Vt
