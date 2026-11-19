@@ -75,11 +75,12 @@ Output chain
   V_col -> VR9U -> R55 -> C31 -> out
   C31 bilinear IIR HP, identical in form to cymb.py _make_c31_coeffs().
 
-Noise source  (TR2 / B1)
+Noise source  (TR2 / B1, see pe78/noise.py)
   TR2 (BC108B avalanche) noise is shared between snare and cymbal.
   The caller may pass the same noise_sample to both process_sample() calls.
-  If noise_sample is omitted, an internal N(0,1) sample is generated.
-  Scaling: NOISE_AMP = 0.04 V (same as cymb.py).
+  noise_sample has unit variance; if omitted, an internal N(0,1) sample is
+  generated. NOISE_AMP = noise_amp(fs) [A] turns it into the B1 current, which
+  reaches the base as a Norton source with resistance VR8U through C28.
 
 Ebers-Moll calibration
   Is_b is calibrated so that V_base_TR3 at steady state with a 4.5 V
@@ -110,13 +111,15 @@ Component values  (PE 1978 Fig. 6, verified on LTspice ASC)
   TR5     : BC108B emitter follower, +4.7V supply
   Envelope: R49=2.2kOhm, C27=0.05uF, R50=1MOhm, R51=1MOhm
   TR3     : BC108B, hFE=200, Vt=26mV
-  Noise   : C28=4.7nF (B1 -> base), B1 = 12V + white*0.04V
+  Noise   : C28=4.7nF (node N -> base), B1 = -white(2e6*time)*4uA into N,
+            VR8U=90kOhm (N to +12V; VR8 = 100 kOhm trimmer)
   Collector: L1=100mH || R53=4.7kOhm, C30=0.02uF (to GND)
   Output  : VR9U=25kOhm, R55=22kOhm, C31=0.1uF
 """
 
 import numpy as np
 import pywdf.core.wdf   as _wdf
+from pe78.noise import noise_amp, VR8U as _VR8U
 import pywdf.core.rtype as _rtype
 
 Resistor               = _wdf.Resistor
@@ -185,7 +188,7 @@ class PE78_Snare:
     #                               f_res = 1/(2pi*sqrt(L1*C30)) = 3559 Hz
     #                               Q = (R53||VR9U)/sqrt(L1/C30) ~ 1.8 at
     #                               VR9U = 25 kOhm, ~ 2.0 at 110 kOhm
-    C28       = 4.7e-9      # [F]   noise coupling B1 -> base
+    C28       = 4.7e-9      # [F]   noise coupling node N -> base
     hFE       = 200         # [-]   DC current gain
     Vt        = 26e-3       # [V]   thermal voltage at 300 K
     # Ebers-Moll base saturation current.
@@ -198,8 +201,8 @@ class PE78_Snare:
     # (mirrors cymb.py R_SRC_TR4)
     R_SRC_TR3 = R53         # [Ohm]
 
-    # Noise
-    NOISE_AMP = 0.04        # [V]   same as cymb.py (shared TR2 bus)
+    # Noise (pe78/noise.py); NOISE_AMP [A] is set per instance from fs
+    VR8U      = _VR8U       # [Ohm] VR8 between noise node N and +12 V
 
     # Output
     VR9U_default = 25e3    # [Ohm] snare side of VR9 balance pot (calibrated value)
@@ -230,6 +233,9 @@ class PE78_Snare:
 
         self.VR9U = float(self.VR9U_default)
 
+        # B1 current per unit of noise_sample [A]
+        self.NOISE_AMP = noise_amp(self.fs)
+
         # Envelope IIR time constants
         self._tau_on  = self.R49 * self.C27              # ~ 0.110 ms
         self._tau_off = (self.R50 + self.R51) * self.C27 # = 100 ms
@@ -240,8 +246,9 @@ class PE78_Snare:
         # NR warm-start state
         self._V_base = 0.0
 
-        # C28 bilinear HP state  (mirrors cymb.py _v_base / _v_base_x)
+        # C28 bilinear HP state  (mirrors cymb.py _v_hp / _v_base_x)
         self._v_base_hp = 0.0
+        self._v_base_n  = 0.0   # noise voltage at the TR3 base [V]
         self._v_base_x  = 0.0
 
         # C31 output HP state
@@ -279,7 +286,7 @@ class PE78_Snare:
         v_trigger    : float
             SNARE_DRUM trigger [V].  Typical: 0.0 V idle, 4.5 V active.
         noise_sample : float or None
-            White noise sample (sigma ~ 1), scaled internally by NOISE_AMP.
+            White noise sample (sigma = 1), scaled internally by NOISE_AMP.
             Pass the same value as the cymbal call to share the TR2 bus.
             If None, a fresh N(0,1) sample is drawn internally.
 
@@ -298,7 +305,7 @@ class PE78_Snare:
         V_base, gm, r_pi = self._solve_base_ebers_moll(V_env)
         self._V_base = V_base
 
-        # 3. C28 bilinear HP: scale and filter noise
+        # 3. C28 bilinear HP: B1 current -> noise voltage at the base
         v_b = self._step_c28(noise_sample * self.NOISE_AMP, gm)
 
         # 4. TR3 collector: WDF node
@@ -396,19 +403,23 @@ class PE78_Snare:
     # Private: C28 bilinear high-pass  (noise -> base coupling)
     # ------------------------------------------------------------------
 
-    def _step_c28(self, noise_b1: float, gm: float) -> float:
+    def _step_c28(self, noise_i: float, gm: float) -> float:
         """
-        Advance C28 bilinear HP by one sample.
+        Advance the C28 coupling by one sample.
 
-        Structurally identical to the C29 HP in cymb.py _step_tr4():
-          H(s) = s*tau / (1 + s*tau),  tau = C28 * r_base
-          r_base = r_pi || R51
+        noise_i is the B1 current [A] into node N. Seen from C28, the
+        Norton source (noise_i, VR8U) is a Thevenin source
+        (noise_i*VR8U, VR8U); with r_base = r_pi || R51 at the base:
 
-        Bilinear transform (k = 2*fs*tau):
+          v_b = noise_i*VR8U * r_base/(VR8U + r_base) * H(s)
+          H(s) = s*tau / (1 + s*tau),  tau = C28 * (VR8U + r_base)
+
+        Bilinear transform of H (k = 2*fs*tau):
           alpha = k / (1 + k)
           y[n]  = alpha*(x[n] - x[n-1]) + (2*alpha - 1)*y[n-1]
 
-        Returns filtered noise voltage at TR3 base [V].
+        The load of C29 (cymbal side) on node N is not modelled.
+        Returns the noise voltage at the TR3 base [V].
         """
         if gm > 1e-12:
             r_pi   = self.hFE / gm
@@ -416,14 +427,17 @@ class PE78_Snare:
         else:
             r_base = self.R51
 
-        tau_c28 = self.C28 * r_base
+        r_ser   = self.VR8U + r_base
+        tau_c28 = self.C28 * r_ser
         k       = 2.0 * self.fs * tau_c28
         alpha   = k / (1.0 + k)
 
-        x_new           = noise_b1 - self._v_base_x
+        v_th            = noise_i * self.VR8U
+        x_new           = v_th - self._v_base_x
         self._v_base_hp = alpha * x_new + (2.0 * alpha - 1.0) * self._v_base_hp
-        self._v_base_x  = noise_b1
-        return self._v_base_hp
+        self._v_base_x  = v_th
+        self._v_base_n  = self._v_base_hp * r_base / r_ser
+        return self._v_base_n
 
     # ------------------------------------------------------------------
     # Private: sub-circuit C — TR3 collector WDF

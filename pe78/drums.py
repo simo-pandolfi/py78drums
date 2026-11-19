@@ -35,7 +35,7 @@ from pe78.snare import PE78_Snare
 from pe78.cymb  import PE78_Cymbals_Maracas
 from pe78.twint import EdgeDetector, TwinTDrum
 
-NOISE_STD = 0.02    # [V]  default white noise standard deviation
+NOISE_STD = 1.0     # [-]  unit-variance noise; the level (B1) is set in pe78/noise.py
 
 
 # ---------------------------------------------------------------------------
@@ -70,7 +70,7 @@ class SnareDrum(BaseWDFDrum):
         v_trig : float
             Trigger voltage (4.5 V = on, 0 V = off).
         noise_sample : float or None
-            White noise sample (sigma ~= 1). Generated internally if None.
+            White noise sample (sigma = 1). Generated internally if None.
         """
         if noise_sample is None:
             noise_sample = np.random.normal(0, self.noise_std)
@@ -93,7 +93,7 @@ class CymbDrum(BaseWDFDrum):
         v_trig_lc, v_trig_sc, v_trig_mr : float
             Trigger voltages for each voice (4.5 V = on, 0 V = off).
         noise_sample : float or None
-            White noise sample (sigma ~= 1). Generated internally if None.
+            White noise sample (sigma = 1). Generated internally if None.
         """
         if noise_sample is None:
             noise_sample = np.random.normal(0, self.noise_std)

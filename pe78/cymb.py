@@ -100,6 +100,7 @@ Quantitative agreement with LTspice reference
 import numpy as np
 import pywdf.core.wdf as _wdf
 import pywdf.core.rtype as _rtype
+from pe78.noise import noise_amp, VR8U as _VR8U
 
 Resistor               = _wdf.Resistor
 Capacitor              = _wdf.Capacitor
@@ -183,7 +184,7 @@ class PE78_Cymbals_Maracas:
     Vcc       = 12.0
     R54       = 4700.0
     L2_val    = 100e-3
-    C29       = 4.7e-9
+    C29       = 4.7e-9     # noise coupling node N -> TR4 base
     hFE       = 200
     Vt        = 26e-3
     # Ebers-Moll base saturation current, calibrated so that
@@ -195,7 +196,8 @@ class PE78_Cymbals_Maracas:
     # D9-branch ENV Thevenin (used only as a fallback guard rail).
     Vbe_th    = 0.58       # [V]  approximate; not used in the NR solver
     R_SRC_TR4 = R54
-    NOISE_AMP = 0.04
+    # Noise (pe78/noise.py); NOISE_AMP [A] is set per instance from fs
+    VR8U      = _VR8U      # [Ω] VR8 between noise node N and +12 V
 
     D9_Is = 2.52e-9    # 1N4148
 
@@ -217,6 +219,9 @@ class PE78_Cymbals_Maracas:
         self._dt = 1.0 / fs
         self.VR9L = float(vr9l) if vr9l is not None else self.VR9L_default
 
+        # B1 current per unit of noise_sample [A]
+        self.NOISE_AMP = noise_amp(self.fs)
+
         self._on_lc = self._on_sc = self._on_mr = False
 
         # C25 IIR state (D9 anode)
@@ -229,9 +234,10 @@ class PE78_Cymbals_Maracas:
         # r_pi_eff from last NR solve — feeds D9-branch ENV Thevenin
         self._r_pi_applied = 10e6   # starts at open-base (cut-off)
 
-        # C29 HP state (TR4 base noise)
-        self._v_base   = 0.0
+        # C29 HP state and TR4 base noise voltage
+        self._v_hp     = 0.0
         self._v_base_x = 0.0
+        self._v_base   = 0.0
         
         # C31 output HP
         self._c31_x = 0.0
@@ -257,7 +263,7 @@ class PE78_Cymbals_Maracas:
         self._b_c31, self._a_c31 = self._make_c31_coeffs()
 
     def process_sample(self, v_trig_lc: float, v_trig_sc: float,
-                       v_trig_mr: float, noise_sample: float = 0.0) -> float:
+                       v_trig_mr: float, noise_sample: float = None) -> float:
         """
         Advance the circuit by one sample.
 
@@ -265,14 +271,18 @@ class PE78_Cymbals_Maracas:
         ----------
         v_trig_lc, v_trig_sc, v_trig_mr : float
             M253 trigger voltages: 0.0 V = idle, 4.5 V = active.
-        noise_sample : float
-            White noise sample (σ ≈ 1), scaled internally by NOISE_AMP.
+        noise_sample : float or None
+            White noise sample (σ = 1), scaled internally by NOISE_AMP.
+            If None, an internal N(0,1) sample is generated (as in snare.py).
 
         Returns
         -------
         float
             Audio output [V] after C31 high-pass coupling.
         """
+        if noise_sample is None:
+            noise_sample = np.random.standard_normal()
+
         on_lc = v_trig_lc > 0.5
         on_sc = v_trig_sc > 0.5
         on_mr = v_trig_mr > 0.5
@@ -421,15 +431,15 @@ class PE78_Cymbals_Maracas:
     # -----------------------------------------------------------------------
     # Private: TR4 collector step (sub-circuit B)
     # -----------------------------------------------------------------------
-    def _step_tr4(self, V_env: float, gm: float, noise_b1: float) -> float:
+    def _step_tr4(self, V_env: float, gm: float, noise_i: float) -> float:
         """
         Advance TR4 collector one sample.  Returns V_col [V].
 
         Parameters
         ----------
-        V_env : float   ENV node voltage, used to compute r_base for C29 filter.
+        V_env : float   ENV node voltage (not used; r_base comes from gm).
         gm    : float   Transconductance from Ebers-Moll NR solve [A/V].
-        noise_b1 : float  Scaled noise sample entering TR4 base via C29.
+        noise_i : float  B1 current into the noise node N [A].
         """
         # r_base = r_pi || R52, with r_pi = hFE·Vt/Ic = hFE/gm
         if gm > 1e-12:
@@ -438,19 +448,24 @@ class PE78_Cymbals_Maracas:
         else:
             r_base = self.R52
 
-        # C29 — AC coupling high-pass, first-order bilinear IIR.
-        # Analog prototype: H(s) = sτ / (1 + sτ),  τ = C29·r_base
+        # C29 — noise coupling, first-order bilinear IIR.
+        # Seen from C29, the Norton source (noise_i, VR8U) is a Thevenin
+        # source (noise_i·VR8U, VR8U):
+        #   v_b = noise_i·VR8U · r_base/(VR8U + r_base) · H(s)
+        #   H(s) = sτ / (1 + sτ),  τ = C29·(VR8U + r_base)
         # Bilinear discretisation (α = 2fs·τ/(1+2fs·τ), pole p = 2α−1):
         #   H(z) = α·(1 − z⁻¹) / (1 − (2α−1)·z⁻¹)
         # Direct form I:  y[n] = α·(x[n]−x[n-1]) + (2α−1)·y[n-1]
-        # fc = 1/(2π·τ) ≈ 3.4 kHz at the nominal operating point
-        #   (r_base ≈ 9.8 kΩ, Ic ≈ 527 µA, V_ENV ≈ 633 mV).
-        tau_c29      = self.C29 * r_base
-        k            = 2.0 * self.fs * tau_c29       # coefficiente bilineare
-        alpha_hp     = k / (1.0 + k)                 # polo del HP
-        x_new        = noise_b1 - self._v_base_x     # differenza ingresso
-        self._v_base = alpha_hp * x_new + (2.0 * alpha_hp - 1.0) * self._v_base
-        self._v_base_x = noise_b1                     # stato ritardato
+        # The load of C28 (snare side) on node N is not modelled.
+        r_ser        = self.VR8U + r_base
+        tau_c29      = self.C29 * r_ser
+        k            = 2.0 * self.fs * tau_c29       # bilinear constant
+        alpha_hp     = k / (1.0 + k)
+        v_th         = noise_i * self.VR8U
+        x_new        = v_th - self._v_base_x
+        self._v_hp   = alpha_hp * x_new + (2.0 * alpha_hp - 1.0) * self._v_hp
+        self._v_base_x = v_th
+        self._v_base = self._v_hp * r_base / r_ser    # noise voltage at the base
 
         self._tr4_src.set_voltage(gm * self._v_base * self.R_SRC_TR4)
         self._tr4_node.compute()
