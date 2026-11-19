@@ -108,7 +108,8 @@ Known approximations (consistent with cymb.py)
 
 Component values  (PE 1978 Fig. 6, verified on LTspice ASC)
   Trigger : C22=0.1uF, R48=22kOhm, V_trigger=4.5V (M253 output)
-  TR5     : BC108B emitter follower, +4.7V supply
+  TR5     : BC108B emitter follower, collector to +5 V (V5 in the .asc);
+            modelled as V_E = max(0, V_trigger - Vbe5), supply not modelled
   Envelope: R49=2.2kOhm, C27=0.05uF, R50=1MOhm, R51=1MOhm
   TR3     : BC108B, hFE=200, Vt=26mV
   Noise   : C28=4.7nF (node N -> base), B1 = -white(2e6*time)*4uA into N,

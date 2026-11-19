@@ -13,7 +13,7 @@ Voices: Bass Drum (IC4a), Hi Bongo (IC4b), Low Bongo (IC4c),
 Structure:
   EdgeDetector: converts a digital gate into a positive trigger spike.
   TwinTDrum:    damped Twin-T oscillator with a CD4011 NAND gate used as
-                a linear inverter with DC bias and variable decay (VR4).
+                a linear inverter; VR4 sets the decay (see below).
 
 Physical topology — 4 nodes, 9 WDF ports:
   n0 = NB_R    : midpoint of R11-R12 (C5 shunt to GND)
@@ -43,12 +43,19 @@ Scattering matrix correction for the inverter (row n3 of M):
   M[3,3] += 1/r_o
   M[3,2] -= a_gain/r_o   (a_gain < 0 -> increases M[3,2])
 
-Bias resistor semantics:
-  r_fb = R10 + VR4  (total value in Ohm, not VR4 alone)
-  R10 = 150 kOhm (fixed bias resistor, sets the DC operating point)
-  VR4 = potentiometer controlling bias, decay; range 0 ... ~470 kOhm
-  Physical range of r_bias: 150 kOhm (VR4=0) ... ~620 kOhm (VR4 max)
-  Typical operating point: VR4 ~= 150 kOhm -> r_bias ~= 300 kOhm
+VR4 semantics (linear small-signal model):
+  r_bias = R10 + VR4  (total value in Ohm, not VR4 alone); R10 = 150 kOhm,
+  VR4 = 0 ... ~470 kOhm, default 150 kOhm -> r_bias = 300 kOhm.
+  C5, C6, C7 block DC and the gate input draws no current: the DC operating
+  point is the gate's own switching voltage, independent of VR4. The model
+  works on AC only and has no DC operating point.
+  VR4 sets the AC feedback, i.e. the distance from self-oscillation: larger
+  VR4 -> longer decay and slightly lower pitch. Bass drum with a_gain = -40:
+  VR4 = 0 -> 110 Hz, tau 9 ms; 150 kOhm -> 90 Hz, 83 ms; self-oscillation
+  above about 189 kOhm (the threshold moves with a_gain, i.e. with the chip).
+  The model is linear: above the threshold the output grows without limit,
+  while the real gate settles on an oscillation limited by the 0-5 V rails
+  and by its own compression (point C12 of the correction plan).
 """
 
 import numpy as np
@@ -150,7 +157,7 @@ class TwinTDrum:
         CD4011 open-loop small-signal gain, must be negative (default -40).
     """
 
-    # Fixed bias resistor R10 (sets inverter DC operating point)
+    # Fixed feedback resistor R10, in series with VR4 (AC feedback; see module docstring)
     R10 = 150e3     # [Ohm]
 
     def __init__(self, fs, r_params, c_params, vr4, r_load,
@@ -200,9 +207,10 @@ class TwinTDrum:
         """
         Update VR4 at control rate (maps directly to the physical potentiometer).
 
-        The total bias resistance becomes R10 + VR4. Decay increases with VR4:
-          low VR4  -> inverter closer to saturation  -> shorter decay
-          high VR4 -> inverter more linear            -> longer decay
+        The feedback resistance becomes R10 + VR4. VR4 sets the AC feedback,
+        not the DC operating point: larger VR4 -> longer decay, up to
+        self-oscillation (bass drum, a_gain = -40: about 189 kOhm). Above the
+        threshold this linear model grows without limit (see module docstring).
         Physical range: 0 Ohm (VR4=0) ... ~470 kOhm.
 
         The scattering matrix S is recomputed automatically via the pywdf

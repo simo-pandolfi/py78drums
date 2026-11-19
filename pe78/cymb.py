@@ -378,8 +378,10 @@ class PE78_Cymbals_Maracas:
             f(V) = V · G_fixed + I_fixed + Is_b · (exp(V/Vt) − 1) = 0
             f'(V) = G_fixed + Is_b · exp(V/Vt) / Vt          > 0  always
 
-        G_fixed, I_fixed come from the current root_env.a_vals (leaf reflected
-        waves), which are already advanced by root_env.compute().
+        G_fixed, I_fixed come from root_env.a_vals, the leaf reflected waves
+        collected at the start of root_env.compute() for this sample (pywdf-ref,
+        E1). With the original pywdf, compute() collected them after the scatter,
+        so a_vals held the waves of the next sample.
 
         Monotonicity of f' guarantees a unique root and global convergence of
         Newton-Raphson from any starting point.  In practice 3-5 iterations

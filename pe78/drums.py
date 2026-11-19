@@ -26,7 +26,7 @@ Note on hb/sd bus sharing:
 Instrument parameter dictionaries:
   All VR4 values represent the potentiometer alone (not R10+VR4).
   TwinTDrum adds R10=150 kOhm internally.
-  Default VR4=150 kOhm -> r_bias = R10+VR4 = 300 kOhm (mid-travel).
+  Default VR4=150 kOhm -> r_bias = R10+VR4 = 300 kOhm.
 """
 
 import numpy as np
@@ -186,7 +186,9 @@ class TonalDrum(BaseWDFDrum):
         Parameters
         ----------
         vr4 : float
-            VR4 value in Ohm (0 = shortest decay, ~470 kOhm = longest).
+            VR4 value in Ohm (0 ... ~470 kOhm). Larger VR4 -> longer decay,
+            up to self-oscillation (bass drum: about 189 kOhm); above it the
+            linear model grows without limit (see twint.py).
         """
         self.voice.set_vr4(vr4)
 
@@ -194,7 +196,7 @@ class TonalDrum(BaseWDFDrum):
 # ---------------------------------------------------------------------------
 #  Instrument parameter dictionaries
 #  kick_vr4 = VR4 alone (TwinTDrum adds R10=150 kOhm internally)
-#  kick_vr4 default = 150 kOhm -> r_bias = 300 kOhm (mid-travel)
+#  kick_vr4 default = 150 kOhm -> r_bias = 300 kOhm
 # ---------------------------------------------------------------------------
 
 BDO_PARAMS = {
