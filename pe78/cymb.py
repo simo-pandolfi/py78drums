@@ -37,28 +37,29 @@ Sub-circuit B — TR4 collector:
   collector current gm*v_b in parallel with R54), not a separate port.
   Driven by V_env from sub-circuit A (one-sample delay).
 
-MR noise path — D9 nonlinearity
----------------------------------
-The Maracas branch has two stages separated by D9:
+Sub-circuit M — Maracas branch (C25 in series, D8, D9)
+------------------------------------------------------
+Schematic (PE 1978 Fig. 6, .asc):
 
-  n_A (anode side, modelled as C25 IIR Thevenin):
-    PIN19──[R_src]──┬──[R43, 22kΩ]── GND
-                    └──[C25, 0.22µF]── n_A ──[D9→]──[R45, 100kΩ]──> n_MR
-    n_A──[←D8]── GND  (D8 clamps n_A to −0.6 V; not modelled — V_C25
-                        is clamped to 0 V by the IIR, which is equivalent
-                        for V_C25 ≥ 0 as in normal operation.)
+    PIN19 ─[M253]─ S ──[C25 0.22µF]── A ──[D9 →]── K ──[R45 100k]── n_MR
+                   │                  │                              │
+               [R43 22k]           [D8] anode at GND            [C26 0.1µF]
+                   │                  │                              │
+                  GND                GND                    [R46 470k]─> ENV
 
-  n_MR (hold node):
-    n_MR──[R46, 470kΩ]──> ENV
-         └──[C26, 0.1µF]── GND
+The rising edge passes through C25 and charges C26 through D9 and R45; the
+charge is shared between C25 and C26 (no DC path to C26), so V_C26 peaks
+and then decays even while the gate is high. At the end of the gate A goes
+negative and D8 clamps it (about -0.4 V).
 
-C25 is modelled as a first-order IIR (not a WDF port) to avoid the WDF
-freeze that occurs when D9 enters reverse bias.  R43 sets the Thevenin
-impedance of the anode source: R_par = R_src ‖ R43.
-
-D9 is a pywdf Diode root connected to:
-  anode  ← Thevenin(R_par_mr, −V_c25)  from C25 IIR
-  cathode → r45 → Parallel(c26, Series(r46, rvsrc_env_th))
+Implementation: pe78.wdf_nlroot.RTypeNLRoot. Leaves (pywdf): M253 source
+(V_ON/R_ON, 0 V/R_OFF), R43, C25, R45, C26 and the ENV branch, a resistive
+source R46 + R_th with the open-circuit voltage of ENV (previous sample):
+    R_th = R52 ‖ (R47 + R_src_lc) ‖ (R42 + R44 + R_src_sc) ‖ r_pi
+    V_th = V_env − R_th · (V_C26 − V_env)/R46
+Nonlinear ports: D8 (A–GND, anode at GND) and D9 (A–K), 1N4148 as LTspice
+standard.dio (Is 2.52 nA, N 1.752), solved together by Newton-Raphson (they
+are coupled through A: C25 is about 24 Ohm at 96 kHz).
 
 TR4 base loading — nonlinear root, Newton-Raphson (Werner 2015 §IV)
 --------------------------------------------------------------------
@@ -109,6 +110,7 @@ import numpy as np
 import pywdf.core.wdf as _wdf
 import pywdf.core.rtype as _rtype
 from pe78.noise import noise_amp, VR8U as _VR8U
+from pe78.wdf_nlroot import RTypeNLRoot, diode_law
 
 Resistor               = _wdf.Resistor
 Capacitor              = _wdf.Capacitor
@@ -116,7 +118,6 @@ Inductor               = _wdf.Inductor
 ResistiveVoltageSource = _wdf.ResistiveVoltageSource
 SeriesAdaptor          = _wdf.SeriesAdaptor
 ParallelAdaptor        = _wdf.ParallelAdaptor
-Diode                  = _wdf.Diode
 RootRTypeAdaptor       = _rtype.RootRTypeAdaptor
 
 
@@ -212,7 +213,7 @@ class PE78_Cymbals_Maracas:
     R44   = 1e6
 
     R43   = 22e3       # MR: D9 anode pull-down
-    C25   = 0.22e-6    # MR: decoupling cap (IIR, not WDF)
+    C25   = 0.22e-6    # MR: series coupling cap (WDF leaf)
     R45   = 100e3      # MR: D9 cathode series
     C26   = 0.1e-6     # MR: hold cap; tau = R46·C26 = 47 ms
     R46   = 470e3
@@ -238,7 +239,10 @@ class PE78_Cymbals_Maracas:
     # Noise (pe78/noise.py); NOISE_AMP [A] is set per instance from fs
     VR8U      = _VR8U      # [Ω] VR8 between noise node N and +12 V
 
-    D9_Is = 2.52e-9    # 1N4148
+    # 1N4148 (LTspice standard.dio), D8 and D9
+    VT_27C = 25.852e-3 # [V]  kT/q at 27 C (LTspice)
+    D_IS   = 2.52e-9   # [A]
+    D_N    = 1.752     # [-]
 
     VR9L_default = 195e3
     R55   = 22e3
@@ -262,8 +266,9 @@ class PE78_Cymbals_Maracas:
 
         self._on_lc = self._on_sc = self._on_mr = False
 
-        # C25 IIR state (D9 anode)
+        # Maracas branch observables (C25 voltage S-A, node A)
         self._V_c25  = 0.0
+        self._V_a    = 0.0
 
         # One-sample delays
         self._V_env  = 0.0    # V_ENV[n-1]  (used to drive TR4 collector)
@@ -333,24 +338,13 @@ class PE78_Cymbals_Maracas:
             self._rvsrc_sc.set_resistance(self.R_ON if on_sc else self.R_OFF)
             self._on_sc = on_sc
         if on_mr != self._on_mr:
-            self._rvsrc_mr.set_resistance(self.R_ON if on_mr else self.R_OFF)
+            self._m253_mr.set_resistance(self.R_ON if on_mr else self.R_OFF)
             self._on_mr = on_mr
 
         # ---- 2. Source voltages ----------------------------------------
         self._rvsrc_lc.set_voltage(self.V_ON if on_lc else 0.0)
         self._rvsrc_sc.set_voltage(-(self.V_ON if on_sc else 0.0))
-        self._rvsrc_mr.set_voltage(self.V_ON if on_mr else 0.0)
-
-        # ---- 3. C25 IIR (D9 anode; decoupled to prevent WDF freeze) ----
-        R_src_mr     = self._rvsrc_mr.Rval
-        V_src_mr     = self.V_ON if on_mr else 0.0
-        R_par_mr     = R_src_mr * self.R43 / (R_src_mr + self.R43)
-        V_anode_tgt  = V_src_mr * self.R43 / (R_src_mr + self.R43)
-        tau_c25      = self.C25 * R_par_mr
-        self._V_c25 += self._dt / (tau_c25 + self._dt) * (V_anode_tgt - self._V_c25)
-
-        self._rvsrc_anode_th.set_resistance(R_par_mr)
-        self._rvsrc_anode_th.set_voltage(-self._V_c25)   # −sign: WDF port convention
+        self._m253_mr.set_voltage(self.V_ON if on_mr else 0.0)
 
         # ---- 4. MR → ENV Thevenin (one-sample delayed C26) -------------
         # R_th = R46: ENV sees n_MR through R46 only.  R45 is on the D9 side
@@ -359,7 +353,7 @@ class PE78_Cymbals_Maracas:
         self._rvsrc_mr_port.set_resistance(self.R46)
         self._rvsrc_mr_port.set_voltage(-self._V_c26)
 
-        # ---- 5. D9 cathode-side Thevenin (ENV seen from D9 cathode) ----
+        # ---- 5. ENV seen from n_MR (Thevenin, previous sample) ----------
         #  Includes r_pi (incremental) of the PREVIOUS sample.
         R_src_lc = self._rvsrc_lc.Rval
         R_src_sc = self._rvsrc_sc.Rval
@@ -372,13 +366,14 @@ class PE78_Cymbals_Maracas:
         # Open-circuit voltage of ENV without the MR current: V_env[n-1] already
         # contains the drop of the R46 current on R_env_th (C7, D4-B).
         i_r46 = (self._V_c26 - self._V_env) / self.R46     # n_MR -> ENV [A]
-        self._rvsrc_env_th.set_resistance(R_env_th)
-        self._rvsrc_env_th.set_voltage(self._V_env - R_env_th * i_r46)
+        self._env_mr.set_resistance(self.R46 + R_env_th)
+        self._env_mr.set_voltage(self._V_env - R_env_th * i_r46)
 
-        # ---- 6. Step D9 / MR branch ------------------------------------
-        self._d9.accept_incident_wave(self._tree_mr.propagate_reflected_wave())
-        self._tree_mr.accept_incident_wave(self._d9.propagate_reflected_wave())
-        self._V_c26 = -self._c26.wave_to_voltage()
+        # ---- 6. Maracas branch: R-type root, Newton on D8 and D9 ---------
+        self._root_mr.compute()
+        self._V_c26 = self._c26.wave_to_voltage()
+        self._V_c25 = self._c25.wave_to_voltage()
+        self._V_a   = self._root_mr.v_nodes[1]
 
         # ---- 7-8. ENV node: nonlinear root (Ebers-Moll NR) --------------
         #  Collect the subtree waves, solve V_env, send the waves back.
@@ -539,59 +534,36 @@ class PE78_Cymbals_Maracas:
         self._root_env = _ParallelNLRoot(ports, self._solve_env_ebers_moll)
 
     # -----------------------------------------------------------------------
-    # Private: MR branch (D9 as root)
+    # Private: maracas branch (sub-circuit M)
     # -----------------------------------------------------------------------
     def _build_mr_tree(self):
         """
-        D9 (1N4148) root — topology follows Fig. 6 schematic:
-
-          n_A  (anode side, modelled as C25 IIR Thevenin):
-            PIN19 ──[R_src]──┬──[R43, 22kΩ]── GND
-                             └──[C25, 0.22µF]── n_A ──[D9 →]──[R45, 100kΩ]──> n_MR
-            n_A ──[← D8]── GND   (D8 not modelled: V_C25 is clamped to 0 V
-                                   by the IIR, which is equivalent for V_C25 ≥ 0.
-                                   D8 would clamp to −0.6 V but that region is
-                                   never reached in normal operation.)
-
-          n_MR (hold node = junction R45 / C26 / R46):
-            n_MR ──[R46, 470kΩ]──> ENV
-                 └──[C26, 0.1µF]── GND
-
-        anode  ← Thevenin(R_par_mr, −V_c25)  from C25 IIR
-        cathode → [R45] → n_MR → Parallel(c26, Series(r46, rvsrc_env_th))
-
-        rvsrc_env_th models the Thevenin of ENV seen from n_MR (all values of
-        the previous sample):
-          R_th  = R52 ‖ (R47 + R_src_lc) ‖ (R42 + R44 + R_src_sc) ‖ r_pi
-          V_th  = V_env − R_th · (V_C26 − V_env)/R46   (open circuit: without
-                  the R46 current, which V_env already contains)
-        R46 is a separate port in series (r46_env).
+        Maracas branch as an R-type junction with D8 and D9 at the root
+        (pe78.wdf_nlroot.RTypeNLRoot). Nodes: 0 S (M253, R43, C25),
+        1 A (C25, D8, D9), 2 K (D9, R45), 3 n_MR (R45, C26, ENV branch).
+        The ENV branch is a resistive source R46 + R_th with the open-circuit
+        voltage of ENV, set every sample in process_sample (step 5).
         """
-        # _rvsrc_mr is not wired into any WDF node; it exists solely to
-        # track the current R_ON/R_OFF value of the MR trigger source so
-        # that process_sample() can compute R_par_mr = R_src ‖ R43.
-        self._rvsrc_mr = ResistiveVoltageSource(self.R_OFF)
-        self._r45        = Resistor(self.R45)
-        self._c26        = Capacitor(self.C26, self.fs)
-        self._r46        = Resistor(self.R46)
-
-        self._rvsrc_anode_th = ResistiveVoltageSource(self.R43)
-        self._rvsrc_anode_th.set_voltage(0.0)
-
+        self._m253_mr = ResistiveVoltageSource(self.R_OFF)
+        self._r43     = Resistor(self.R43)
+        self._c25     = Capacitor(self.C25, self.fs)
+        self._r45     = Resistor(self.R45)
+        self._c26     = Capacitor(self.C26, self.fs)
         R_env_th_init = 1.0 / (
             1.0 / self.R47
             + 1.0 / (self.R42 + self.R44)
             + 1.0 / self.R52
         )
-        self._rvsrc_env_th = ResistiveVoltageSource(R_env_th_init)
-        self._rvsrc_env_th.set_voltage(0.0)
-
-        r46_env      = SeriesAdaptor(self._r46, self._rvsrc_env_th)
-        cathode_tree = SeriesAdaptor(
-            self._r45,
-            ParallelAdaptor(self._c26, r46_env))
-        self._tree_mr = SeriesAdaptor(self._rvsrc_anode_th, cathode_tree)
-        self._d9      = Diode(self._tree_mr, Is=self.D9_Is, Vt=25.85e-3)
+        self._env_mr = ResistiveVoltageSource(self.R46 + R_env_th_init)
+        self._env_mr.set_voltage(0.0)
+        S, A, K, M = range(4)
+        nvt = self.D_N * self.VT_27C
+        self._root_mr = RTypeNLRoot(
+            4,
+            [(self._m253_mr, S, -1), (self._r43, S, -1), (self._c25, S, A),
+             (self._r45, K, M), (self._c26, M, -1), (self._env_mr, M, -1)],
+            [(A, -1, diode_law(self.D_IS, nvt, reverse=True)),    # D8
+             (A, K, diode_law(self.D_IS, nvt))])                  # D9
 
     # -----------------------------------------------------------------------
     # Private: TR4 collector node (sub-circuit B)
