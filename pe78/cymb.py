@@ -29,6 +29,13 @@ Sub-circuit A — Envelope node (ENV):
     R_th = R46 only (not R45+R46): C26 sits at n_MR and separates
     R45 (D9 side) from R46 (ENV side) in the Thevenin seen from ENV.
 
+  Coupling ENV <-> maracas branch (sub-circuit M): one-sample delay both
+  ways, R46 in both roots, resistive (static) R_th of ENV. Measured against
+  tools/cymb_env_ref.py (all simultaneous), edges +-1 ms excluded (C9):
+  V_ENV <= 1.1 mV and V_C26 <= 0.9 mV at 96 kHz, <= 1.9 / 2.7 mV at 48 kHz;
+  a dynamic R_th (C23, C24 included) changes the results by < 0.01 mV.
+  Checked by tests/test_cymb_coupling.py.
+
   r52           : ENV pull-down to GND (1 MΩ)
 
 Sub-circuit B — TR4 collector:

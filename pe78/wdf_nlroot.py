@@ -26,6 +26,22 @@ KCL holds at every node and the ports satisfy their laws at the solution
 (check with residuals()). Every node must have a path to GND through the
 leaves (the junction matrix is inverted once per set of resistances).
 
+Theory: the nonlinear elements that are coupled without delay (a WDF
+capacitor is an instantaneous port resistance, not a delay) are grouped at
+the single root of the structure as one multiport nonlinearity; the linear
+part is an R-type adaptor derived from the MNA of the circuit; the root is
+solved iteratively. Here the ports are voltage-controlled (unknowns: the port
+voltages) and the laws are one-port, so the Newton Jacobian is
+J = I + Z*diag(f'(v_N)); the coupling between the ports is in Z.
+  - K. J. Werner, V. Nangia, J. O. Smith III, J. S. Abel, "Resolving Wave
+    Digital Filters with Multiple/Multiport Nonlinearities", DAFx-15.
+  - M. J. Olsen, K. J. Werner, J. O. Smith III, "Resolving Grouped
+    Nonlinearities in Wave Digital Filters using Iterative Techniques",
+    DAFx-16 (Newton at the root; diode pair and BJT case studies).
+  - K. J. Werner, M. J. Olsen, M. Rest, J. D. Parker, "Generalizing Root
+    Variable Choice in Wave Digital Filters with Grouped Nonlinearities",
+    DAFx-17 (other root variables, e.g. the V_BE unknown of snare.py).
+
 Used by cymb.py (maracas branch: D8, D9; C8). The snare front end
 (snare.py, C6) uses the same method with a current-controlled composite port
 (TR5 + D7) and keeps its own solver.
