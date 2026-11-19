@@ -10,7 +10,9 @@ Source: Practical Electronics, Jan 1978, Fig. 6 — bottom section.
 Architecture overview
 ---------------------
 Sub-circuit A — Envelope node (ENV):
-  RootRTypeAdaptor([ser_lc, ser_sc, rvsrc_mr_port, r52, r_pi_port])
+  _ParallelNLRoot([ser_lc, ser_sc, rvsrc_mr_port, r52]): parallel junction
+  with the TR4 base (Shockley) as the nonlinear element at the root, solved
+  by Newton-Raphson on the Thevenin of the four subtrees (see below).
 
   LC branch:
     ser_lc = Series(Parallel(rvsrc_lc, c23), r47)
@@ -28,7 +30,6 @@ Sub-circuit A — Envelope node (ENV):
     R45 (D9 side) from R46 (ENV side) in the Thevenin seen from ENV.
 
   r52           : ENV pull-down to GND (1 MΩ)
-  r_pi_port     : TR4 base impedance (updated each sample; see below)
 
 Sub-circuit B — TR4 collector:
   RootRTypeAdaptor([l2, vr9l, tr4_src])
@@ -59,13 +60,15 @@ D9 is a pywdf Diode root connected to:
   anode  ← Thevenin(R_par_mr, −V_c25)  from C25 IIR
   cathode → r45 → Parallel(c26, Series(r46, rvsrc_env_th))
 
-TR4 base loading — Ebers-Moll Newton-Raphson solver (Werner MNA §IV)
-----------------------------------------------------------------------
-After each root_env.compute(), the reflected-wave vector root.a_vals encodes
-the Thevenin state of all fixed ports.  Using Millman's theorem (pywdf sign):
+TR4 base loading — nonlinear root, Newton-Raphson (Werner 2015 §IV)
+--------------------------------------------------------------------
+At each sample the root collects the reflected waves a_k of the four
+subtrees (a_vals). Seen from the TR4 base they are a Thevenin; by Millman's
+theorem (pywdf sign: the junction voltage is −V_env, see the series
+adaptors of the LC and SC branches):
 
-    V_env = −I_fixed / G_total
-    where  G_fixed = Σ_{k≠rpi} G_k,   I_fixed = Σ_{k≠rpi} G_k · a_vals_k
+    V_env = −I_fixed / G_fixed     without base current
+    where  G_fixed = Σ_k G_k,   I_fixed = Σ_k G_k · a_vals_k
 
 The BC547B base current follows the Shockley diode equation:
     Ib(V) = Is_b · (exp(V/Vt) − 1)
@@ -87,8 +90,13 @@ LTspice:  V_env_ss ≈ 620 mV.  This gives:
   Is_b = (V_th − V_target) / (R_th · (exp(V_target/Vt) − 1))
        ≈ 7.035 × 10⁻¹⁷ A   (close to IS/BF of the BC547B SPICE model)
 
-After solving, r_pi_eff = hFE·Vt/Ic is stored for the D9-branch ENV Thevenin
-and applied to r_pi_port before the next sample's scatter.
+After solving, the root sends to every subtree the incident wave of the
+junction voltage, b_k = 2·(−V_env) − a_k: C23, C24 and the MR port see the
+node voltage with the base current drawn (KCL exact, no delay). Before C7
+the base was a linear port r_pi of the previous sample inside the scatter,
+so the subtrees saw a node at about 68 mV while the NR gave 620 mV.
+r_pi = hFE·Vt/Ic (incremental) is kept for the D9-branch ENV Thevenin of
+the next sample and for the noise path.
 
 Quantitative agreement with LTspice reference
 ----------------------------------------------
@@ -126,6 +134,37 @@ def _par_scatter(adaptor):
             S[i][j] = 2.0 * G[j] / Gt - (1.0 if i == j else 0.0)
     adaptor.set_S_matrix(S)
     adaptor.Rp = 1.0 / Gt
+
+
+class _ParallelNLRoot(RootRTypeAdaptor):
+    """
+    Parallel junction with a nonlinear one-port at the root.
+
+    compute(): collects the reflected waves a_k of the subtrees, calls
+    solve(G_fixed, I_fixed) -> v (junction voltage, pywdf orientation) with
+        G_fixed = Σ G_k,  I_fixed = Σ G_k·a_k,  G_k = 1/Rp_k,
+    and sends b_k = 2·v − a_k to every subtree. The current into the
+    nonlinear element is Σ G_k·(a_k − v); solve() must satisfy its law.
+    """
+
+    def __init__(self, down_ports: list, solve) -> None:
+        self._solve = solve
+        super().__init__(down_ports, lambda adaptor: None)
+
+    def compute(self) -> None:
+        n = len(self.down_ports)
+        G_fixed = 0.0
+        I_fixed = 0.0
+        for i in range(n):
+            a = self.down_ports[i].propagate_reflected_wave()
+            self.a_vals[i] = a
+            g = 1.0 / self.down_ports[i].Rp
+            G_fixed += g
+            I_fixed += g * a
+        v = self._solve(G_fixed, I_fixed)
+        for i in range(n):
+            self.b_vals[i] = 2.0 * v - self.a_vals[i]
+            self.down_ports[i].accept_incident_wave(self.b_vals[i])
 
 
 # ---------------------------------------------------------------------------
@@ -210,9 +249,6 @@ class PE78_Cymbals_Maracas:
     R_PI_MAX = 10e6    # open-base / cut-off
     R_PI_MIN = 500.0   # deep-saturation floor
 
-    # r_pi port index inside root_env.down_ports  (set in _build_env_node)
-    _RPI_PORT_IDX = 4
-
     # -----------------------------------------------------------------------
     def __init__(self, fs: int, vr9l: float = None):
         self.fs  = int(fs)
@@ -231,8 +267,8 @@ class PE78_Cymbals_Maracas:
         self._V_env  = 0.0    # V_ENV[n-1]  (used to drive TR4 collector)
         self._V_c26  = 0.0    # C26[n-1]    (MR → ENV Thevenin voltage)
 
-        # r_pi_eff from last NR solve — feeds D9-branch ENV Thevenin
-        self._r_pi_applied = 10e6   # starts at open-base (cut-off)
+        # r_pi from the last NR solve — feeds the D9-branch ENV Thevenin
+        self._r_pi_prev = 10e6      # starts at open-base (cut-off)
 
         # C29 HP state and TR4 base noise voltage
         self._v_hp     = 0.0
@@ -322,37 +358,35 @@ class PE78_Cymbals_Maracas:
         self._rvsrc_mr_port.set_voltage(-self._V_c26)
 
         # ---- 5. D9 cathode-side Thevenin (ENV seen from D9 cathode) ----
-        #  Includes r_pi from the PREVIOUS scatter for correct ENV impedance.
+        #  Includes r_pi (incremental) of the PREVIOUS sample.
         R_src_lc = self._rvsrc_lc.Rval
         R_src_sc = self._rvsrc_sc.Rval
         R_env_th = 1.0 / (
             1.0 / (self.R47 + R_src_lc)
             + 1.0 / (self.R42 + self.R44 + R_src_sc)
             + 1.0 / self.R52
-            + 1.0 / self._r_pi_applied       # TR4 base loading
+            + 1.0 / self._r_pi_prev          # TR4 base loading
         )
+        # Open-circuit voltage of ENV without the MR current: V_env[n-1] already
+        # contains the drop of the R46 current on R_env_th (C7, D4-B).
+        i_r46 = (self._V_c26 - self._V_env) / self.R46     # n_MR -> ENV [A]
         self._rvsrc_env_th.set_resistance(R_env_th)
-        self._rvsrc_env_th.set_voltage(self._V_env)
+        self._rvsrc_env_th.set_voltage(self._V_env - R_env_th * i_r46)
 
         # ---- 6. Step D9 / MR branch ------------------------------------
         self._d9.accept_incident_wave(self._tree_mr.propagate_reflected_wave())
         self._tree_mr.accept_incident_wave(self._d9.propagate_reflected_wave())
         self._V_c26 = -self._c26.wave_to_voltage()
 
-        # ---- 7. Step ENV node (parallel WDF junction) ------------------
+        # ---- 7-8. ENV node: nonlinear root (Ebers-Moll NR) --------------
+        #  Collect the subtree waves, solve V_env, send the waves back.
         self._root_env.compute()
-
-        # ---- 8. Ebers-Moll NR: resolve V_env, gm, r_pi -------------------
-        V_env_new, gm_new, r_pi_new = self._solve_env_ebers_moll()
+        V_env_new, gm_new, r_pi_new = self._env_solution
 
         self._V_env  = V_env_new
         self._V_c23  = self._c23.wave_to_voltage()
         self._V_c24  = self._c24.wave_to_voltage()
-
-        # Update r_pi_port for next sample's scatter
-        if abs(r_pi_new - self._r_pi_applied) / self._r_pi_applied > 1e-4:
-            self._r_pi_port.set_resistance(r_pi_new)
-            self._r_pi_applied = r_pi_new
+        self._r_pi_prev = r_pi_new
 
         # ---- 9. TR4 collector (sub-circuit B, driven by V_env_new) -----
         V_col       = self._step_tr4(V_env_new, gm_new, noise_sample * self.NOISE_AMP)
@@ -370,42 +404,30 @@ class PE78_Cymbals_Maracas:
     # -----------------------------------------------------------------------
     # Private: TR4 loading — Ebers-Moll Newton-Raphson solver
     # -----------------------------------------------------------------------
-    def _solve_env_ebers_moll(self):
+    def _solve_env_ebers_moll(self, G_fixed: float, I_fixed: float) -> float:
         """
         Resolve V_env and the TR4 operating point via Ebers-Moll NR.
+        Called by the ENV root (_ParallelNLRoot) during compute(); stores
+        (V_env, gm, r_pi) in self._env_solution and returns the junction
+        voltage −V_env (pywdf sign).
 
         Equation to solve each sample (Werner 2015 §IV, single-port NL):
             f(V) = V · G_fixed + I_fixed + Is_b · (exp(V/Vt) − 1) = 0
             f'(V) = G_fixed + Is_b · exp(V/Vt) / Vt          > 0  always
 
-        G_fixed, I_fixed come from root_env.a_vals, the leaf reflected waves
-        collected at the start of root_env.compute() for this sample (pywdf-ref,
-        E1). With the original pywdf, compute() collected them after the scatter,
-        so a_vals held the waves of the next sample.
+        G_fixed, I_fixed come from the subtree waves a_vals collected by the
+        root in this sample.
 
         Monotonicity of f' guarantees a unique root and global convergence of
         Newton-Raphson from any starting point.  In practice 3-5 iterations
         suffice for convergence to 1 pV.
 
-        Returns
-        -------
+        Stored in self._env_solution
+        ----------------------------
         V_env  : float   ENV node voltage [V]
         gm     : float   TR4 transconductance hFE·Is_b·exp(V/Vt)/Vt  [A/V]
         r_pi   : float   small-signal base resistance hFE·Vt/Ic  [Ω]
         """
-        a_vals  = self._root_env.a_vals
-        Rps     = [p.Rp for p in self._root_env.down_ports]
-        idx_rpi = self._RPI_PORT_IDX
-
-        G_fixed = 0.0
-        I_fixed = 0.0
-        for k in range(len(Rps)):
-            if k == idx_rpi:
-                continue
-            gk = 1.0 / Rps[k]
-            G_fixed += gk
-            I_fixed += gk * a_vals[k]
-
         # Newton-Raphson: start from previous V_env for fast convergence
         V = self._V_env
         Vt = self.Vt
@@ -428,7 +450,8 @@ class PE78_Cymbals_Maracas:
         gm     = Ic / Vt
         r_pi   = float(np.clip(self.hFE * Vt / Ic, 500.0, 10e6))
 
-        return V, gm, r_pi
+        self._env_solution = (V, gm, r_pi)
+        return -V
 
     # -----------------------------------------------------------------------
     # Private: TR4 collector step (sub-circuit B)
@@ -478,8 +501,8 @@ class PE78_Cymbals_Maracas:
     # -----------------------------------------------------------------------
     def _build_env_node(self):
         """
-        ENV = RootRTypeAdaptor([ser_lc, ser_sc, rvsrc_mr_port, r52, r_pi_port])
-        Index of r_pi_port = _RPI_PORT_IDX = 4.
+        ENV = _ParallelNLRoot([ser_lc, ser_sc, rvsrc_mr_port, r52]), with the
+        TR4 base (Shockley) at the root.
         """
         # LC branch
         self._rvsrc_lc = ResistiveVoltageSource(self.R_OFF)
@@ -510,15 +533,9 @@ class PE78_Cymbals_Maracas:
         # ENV pull-down
         self._r52 = Resistor(self.R52)
 
-        # TR4 base port — r_pi_eff from Ebers-Moll NR (updated each sample)
-        self._r_pi_port = Resistor(10e6)   # starts at open-base
-
-        # Verify index assumption
-        ports = [ser_lc, ser_sc, self._rvsrc_mr_port, self._r52, self._r_pi_port]
-        assert ports[self._RPI_PORT_IDX] is self._r_pi_port, \
-            f"_RPI_PORT_IDX={self._RPI_PORT_IDX} mismatch — update the class constant"
-
-        self._root_env = RootRTypeAdaptor(ports, _par_scatter)
+        ports = [ser_lc, ser_sc, self._rvsrc_mr_port, self._r52]
+        self._env_solution = (0.0, 0.0, self.R_PI_MAX)
+        self._root_env = _ParallelNLRoot(ports, self._solve_env_ebers_moll)
 
     # -----------------------------------------------------------------------
     # Private: MR branch (D9 as root)
@@ -542,10 +559,12 @@ class PE78_Cymbals_Maracas:
         anode  ← Thevenin(R_par_mr, −V_c25)  from C25 IIR
         cathode → [R45] → n_MR → Parallel(c26, Series(r46, rvsrc_env_th))
 
-        rvsrc_env_th models the Thevenin of ENV seen from n_MR:
-          V_th  = V_env[n-1]
-          R_th  = R46 + (R52 ‖ R_lc ‖ R_sc ‖ r_pi)
-        (R46 is in series between n_MR and the ENV node.)
+        rvsrc_env_th models the Thevenin of ENV seen from n_MR (all values of
+        the previous sample):
+          R_th  = R52 ‖ (R47 + R_src_lc) ‖ (R42 + R44 + R_src_sc) ‖ r_pi
+          V_th  = V_env − R_th · (V_C26 − V_env)/R46   (open circuit: without
+                  the R46 current, which V_env already contains)
+        R46 is a separate port in series (r46_env).
         """
         # _rvsrc_mr is not wired into any WDF node; it exists solely to
         # track the current R_ON/R_OFF value of the MR trigger source so
