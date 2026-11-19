@@ -10,6 +10,9 @@ out/
 *_old.py
 *_fixed.py
 *Copia*
+*_old*
+*_new*
+
 desktop.ini
 *.zip
 *.patch
