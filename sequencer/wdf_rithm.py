@@ -37,17 +37,7 @@ import numpy as np
 from scipy.io import wavfile
 from patterns import PATTERNS
 
-# ---- apply patches in correct order ----
-from pe78_fast import pywdf_patch   # noqa: F401  (1) rtype scatter + diode omega4
-from pe78_fast import cymb_patch    # noqa: F401  (2) cymb NR + par_scatter + C31 IIR
-from pe78_fast import snare_patch   # noqa: F401  (3) snare NR + par_scatter + C31 IIR
-from pe78_fast import twint_patch   # noqa: F401  (4) twint scattering + process_sample
-
-# ---- re-export the (now patched) public symbols ----
-from pe78.cymb  import PE78_Cymbals_Maracas          # noqa: F401
-from pe78.snare import PE78_Snare, SnareDrum          # noqa: F401
-from pe78.twint import TwinTDrum, EdgeDetector        # noqa: F401
-
+# pe78_fast is not used until it is realigned with pe78/ (it reverts C1).
 from pe78.drums import (TonalDrum, SnareDrum, CymbDrum,
     BDO_PARAMS, CONGA_PARAMS, HBONGO_PARAMS, LBONGO_PARAMS, CLAVES_PARAMS)
 
