@@ -2,23 +2,23 @@
 #Copyright (c) 2026 Simone Pandolfi
 #SPDX-License-Identifier: MIT OR Apache-2.0
 """
-Regression test for C3: level and coupling of the TR2/B1 noise (pe78/noise.py).
+Regression test for C3 and C15: level and coupling of the TR2/B1 noise.
 
 Reference: LTspice B1 = -white(2e6*time)*4e-6 A into node N, VR8U = 90 kOhm
 from N to +12 V, N -> C28 -> TR3 base and N -> C29 -> TR4 base.
 
-1. noise_amp(fs) gives the B1 one-sided density 4e-6/sqrt(12)*sqrt(2/2e6) A/rtHz
-   at any fs.
-2. Base noise voltage per unit B1 current, from the model step, against the
-   analytic Norton transfer (bilinear frequency warping included):
-       v_b/i = VR8U*r_base/(VR8U+r_base) * s*tau/(1+s*tau),
-       tau = C*(VR8U+r_base)
-   for the snare (C28, r_base = r_pi||R51) and the cymbals (C29,
-   r_base = r_pi||R52). Before C3 the source was an ideal voltage (gain 1,
-   tau = C*r_base): errors of several dB.
-3. One definition of the level: drums.py wrappers and the models called
-   directly give the same output with noise_sample=None (before C3: 0.8 mV
-   vs 40 mV for the snare, no noise at all for the cymbals called directly).
+1. noise_amp(fs) gives the B1 one-sided density 4e-6/sqrt(12)*sqrt(2/2e6)
+   A/rtHz at any fs; NoiseVoices uses it.
+2. From C15 the node N is shared (one Norton source, VR8U) and the bases are
+   Shockley ports of the bases root. At a DC operating point (TR3 off or on,
+   TR4 off or on with the LC source held active) and with a small sinusoidal
+   B1 current, V_b3 and V_env follow the analytic nodal solution of the
+   linearised network (bilinear warping included): B3 (R50 || R51, g3, C28),
+   N (VR8U, C28, C29), ENV (C29, R52, g4, R46 to the MR port, LC and SC
+   branches). Before C3 the source was an ideal voltage; before C15 each
+   voice had its own N and the other base did not load it.
+3. tick(noise=None) draws N(0, 1) internally: same output as passing the
+   same samples explicitly.
 
 Usage (from the py78drums root):
     python -m pytest tests/test_noise_level.py
@@ -33,45 +33,15 @@ import sys
 
 import numpy as np
 
-ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-sys.path.insert(0, ROOT)
-if os.environ.get("PYWDF_ROOT"):
-    sys.path.insert(0, os.path.abspath(os.environ["PYWDF_ROOT"]))
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from _nv_common import NoiseVoices  # noqa: E402
+from pe78 import noise  # noqa: E402
 
-from pe78 import noise                       # noqa: E402
-from pe78 import drums                       # noqa: E402
-from pe78.snare import PE78_Snare            # noqa: E402
-from pe78.cymb import PE78_Cymbals_Maracas   # noqa: E402
-
-FREQS = (200.0, 1000.0, 3560.0, 10000.0)
-R_PI = (10e3, 20e3, 1e6)          # TR on (peak), decaying, almost off
-REL_TOL = 1e-9
-N_SETTLE = 9600                   # 0.2 s at 48 kHz: tau <= 4.7 nF * 1.1 MOhm = 5.2 ms
-N_WIN = 4800                      # integer number of periods for all FREQS at 48 kHz
-
-
-def _bin(x, f, fs):
-    n = np.arange(len(x))
-    return np.sum(x * np.exp(-2j * np.pi * f * n / fs)) * 2.0 / len(x)
-
-
-def _norton(c, vr8u, r_base, f, fs):
-    s = 1j * 2.0 * fs * np.tan(np.pi * f / fs)    # bilinear warping
-    tau = c * (vr8u + r_base)
-    return vr8u * r_base / (vr8u + r_base) * s * tau / (1.0 + s * tau)
-
-
-def _response(step, f, fs):
-    n = np.arange(N_SETTLE + N_WIN)
-    x = np.cos(2.0 * np.pi * f * n / fs)
-    y = np.array([step(xi) for xi in x])
-    return _bin(y[N_SETTLE:], f, fs) / _bin(x[N_SETTLE:], f, fs)
-
-
-def _check(name, h, h_ref, f):
-    err = abs(h - h_ref) / abs(h_ref)
-    assert err < REL_TOL, (f"{name} f={f:g} Hz: |H|={abs(h):.6g} Ohm, "
-                           f"|H_ref|={abs(h_ref):.6g} Ohm, rel err {err:.3g}")
+FS = 96000
+FREQS = (200.0, 1000.0, 3000.0, 12000.0)
+N_SETTLE, N_WIN = 19200, 4800
+I_AMP = 1e-10            # [A] small: linear around the operating point
+REL_TOL = 2e-3
 
 
 def test_noise_amp():
@@ -79,70 +49,80 @@ def test_noise_amp():
     assert abs(noise.noise_density() - d) < 1e-12 * d
     for fs in (44100, 48000, 96000):
         assert abs(noise.noise_amp(fs) - d * np.sqrt(fs / 2.0)) < 1e-12 * d
-    for cls in (PE78_Snare, PE78_Cymbals_Maracas):
-        for fs in (48000, 96000):
-            assert cls(fs).NOISE_AMP == noise.noise_amp(fs)
+        assert NoiseVoices(fs).NOISE_AMP == noise.noise_amp(fs)
 
 
-def test_snare_base_noise_transfer():
-    fs = 48000
-    for r_pi in R_PI:
+def _setup(v_c27, lc_on):
+    nv = NoiseVoices(FS)
+    nv._r50src.set_voltage(v_c27)
+    nv._mr_port.set_voltage(0.0)
+    if lc_on:
+        nv._m253_lc.set_resistance(nv.R_ON)
+        nv._m253_lc.set_voltage(nv.V_ON)
+    nv._noise_src.set_voltage(0.0)
+    for _ in range(N_SETTLE):
+        nv._root_b.compute()
+    return nv
+
+
+def _analytic(nv, f, vb3, venv):
+    s = 1j * 2.0 * FS * np.tan(np.pi * f / FS)
+    g3 = nv.Is_b3 * np.exp(vb3 / nv.Vt) / nv.Vt
+    g4 = nv.Is_b4 * np.exp(venv / nv.Vt) / nv.Vt
+    rlc = nv._m253_lc.Rp
+    rsc = nv._m253_sc.Rp
+    y_lc = 1.0 / (nv.R47 + 1.0 / (s * nv.C23 + 1.0 / rlc))
+    y_sc = 1.0 / (nv.R44 + 1.0 / (s * nv.C24 + 1.0 / (nv.R42 + rsc)))
+    Y = np.array([
+        [1 / nv.sd.R50 + 1 / nv.R51 + g3 + s * nv.C28, -s * nv.C28, 0],
+        [-s * nv.C28, 1 / nv.VR8U + s * (nv.C28 + nv.C29), -s * nv.C29],
+        [0, -s * nv.C29, s * nv.C29 + 1 / nv.R52 + g4 + 1 / nv.R46 + y_lc + y_sc]])
+    return np.linalg.solve(Y, np.array([0, 1.0, 0]))     # per ampere into N
+
+
+def _measured(nv, twin, f):
+    """Response to a small B1 sine; twin is the same network without it
+    (removes the slow residual drift of the operating point exactly)."""
+    n = N_WIN * 2
+    k = np.arange(n)
+    i = I_AMP * np.sin(2 * np.pi * f * k / FS)
+    v = np.zeros((n, 3))
+    for j in range(n):
+        nv._noise_src.set_voltage(i[j] * nv.VR8U)
+        nv._root_b.compute()
+        twin._root_b.compute()
+        v[j] = nv._root_b.v_nodes - twin._root_b.v_nodes
+    w = v[N_WIN:]
+    e = np.exp(-2j * np.pi * f * k[N_WIN:] / FS)
+    return (w * e[:, None]).sum(axis=0) * 2.0 / N_WIN / (-1j) / I_AMP, twin._root_b.v_nodes.copy()
+
+
+def test_noise_transfer_shared_node():
+    for v_c27, lc_on in ((0.0, False), (2.7, False), (0.0, True), (2.7, True)):
+        nv = _setup(v_c27, lc_on)
+        twin = _setup(v_c27, lc_on)
         for f in FREQS:
-            m = PE78_Snare(fs)
-            gm = m.hFE / r_pi
-            r_base = r_pi * m.R51 / (r_pi + m.R51)
-            h = _response(lambda x: m._step_c28(x, gm), f, fs)
-            _check(f"snare r_pi={r_pi:g}", h, _norton(m.C28, m.VR8U, r_base, f, fs), f)
-
-
-def test_cymb_base_noise_transfer():
-    fs = 48000
-    for r_pi in R_PI:
-        for f in FREQS:
-            m = PE78_Cymbals_Maracas(fs)
-            gm = m.hFE / r_pi
-            r_base = r_pi * m.R52 / (r_pi + m.R52)
-
-            def step(x):
-                m._step_tr4(0.62, gm, x)
-                return m._v_base
-
-            h = _response(step, f, fs)
-            _check(f"cymb r_pi={r_pi:g}", h, _norton(m.C29, m.VR8U, r_base, f, fs), f)
-
-
-def _gate(n, fs):
-    v = np.zeros(n)
-    v[10:10 + int(0.010 * fs)] = 4.5
-    return v
+            got, dc = _measured(nv, twin, f)
+            exp = _analytic(nv, f, dc[0], dc[2])
+            err = np.abs(got[[0, 2]] - exp[[0, 2]]) / np.abs(exp[[0, 2]])
+            assert np.all(err < REL_TOL), (v_c27, lc_on, f, got, exp, err)
 
 
 def test_single_level_definition():
     fs, n = 48000, 2400
-    trig = _gate(n, fs)
-
+    a = NoiseVoices(fs)           # built first: pywdf Capacitor draws from np.random
+    b = NoiseVoices(fs)
     np.random.seed(1)
-    d = drums.SnareDrum(fs)
-    a = np.array([d.tick(v) for v in trig])
+    ya = np.array([a.tick(4.5 if 10 <= k < 490 else 0.0, 0, 0, 0) for k in range(n)])
     np.random.seed(1)
-    m = PE78_Snare(fs)
-    b = np.array([m.process_sample(v, None) for v in trig])
-    assert np.max(np.abs(a)) > 0.0
-    assert np.array_equal(a, b), np.max(np.abs(a - b))
-
-    np.random.seed(2)
-    d = drums.CymbDrum(fs)
-    a = np.array([d.tick(v, 0.0, 0.0) for v in trig])
-    np.random.seed(2)
-    m = PE78_Cymbals_Maracas(fs)
-    b = np.array([m.process_sample(v, 0.0, 0.0) for v in trig])
-    assert np.max(np.abs(a)) > 0.0
-    assert np.array_equal(a, b), np.max(np.abs(a - b))
+    x = [np.random.standard_normal() for _ in range(n)]   # same draws, one at a time
+    yb = np.array([b.tick(4.5 if 10 <= k < 490 else 0.0, 0, 0, 0, x[k]) for k in range(n)])
+    assert np.max(np.abs(ya)) > 0.0
+    assert np.array_equal(ya, yb), np.max(np.abs(ya - yb))
 
 
 if __name__ == "__main__":
     test_noise_amp()
-    test_snare_base_noise_transfer()
-    test_cymb_base_noise_transfer()
+    test_noise_transfer_shared_node()
     test_single_level_definition()
     print("ok")

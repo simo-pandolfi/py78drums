@@ -2,19 +2,19 @@
 #Copyright (c) 2026 Simone Pandolfi
 #SPDX-License-Identifier: MIT OR Apache-2.0
 """
-Regression test for C2: collector impedance of TR3 (snare) and TR4 (cymbals).
+Regression test for C2 and C15: collectors and output network of the noise
+voices (pe78/noise_voices.py).
 
-The transistor is a current source gm*v_b into the collector node. The node
-must see exactly the physical load, each element once:
-    snare : L1 || R53 || C30 || VR9U
-    cymb  : L2 || R54 || VR9L
-R53/R54 is the internal resistance of the Thevenin source, so it must not
-appear again as a separate port.
+C2: R53/R54 appear once (they were also a port: |Z| halved). C15: the two
+collectors share the balance pot VR9 (one 220 kOhm linear pot, wiper W),
+R55, C31 and RLoad (one output). The WDF of the collectors is driven with
+sinusoidal collector currents Ic3, Ic4 and compared with the analytic nodal
+solution (bilinear frequency warping included):
 
-The test drives the model's own step function with a sinusoid, takes the
-ratio V_col/I_c at the drive frequency over a steady-state window, and
-compares it with the analytic impedance under the bilinear transform
-(s = j*2*fs*tan(w/(2*fs))), which the WDF reproduces to rounding error.
+    c3: R53 || L1 || C30, VR9U to W      c4: R54 || L2, VR9L to W
+    W:  R55 to X;  X: C31 to O;  O: RLoad to GND   (+12 V = AC ground)
+
+for V_col3, V_col4 and V_out, two VR9 positions, both sources.
 
 Usage (from the py78drums root):
     python -m pytest tests/test_collector_impedance.py
@@ -22,9 +22,6 @@ Usage (from the py78drums root):
 
 pywdf is taken from the environment; set PYWDF_ROOT to the folder that
 contains the pywdf package to use a specific copy (for example pywdf-ref).
-The test requires pywdf with the E1 correction (pywdf-ref). With the original
-pywdf |Z| is right but V_col lags by one sample, so the complex comparison
-fails (rel err = 2*sin(w/2), 1.3e-2 at 100 Hz).
 """
 
 import os
@@ -32,87 +29,81 @@ import sys
 
 import numpy as np
 
-ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-sys.path.insert(0, ROOT)
-if os.environ.get("PYWDF_ROOT"):
-    sys.path.insert(0, os.path.abspath(os.environ["PYWDF_ROOT"]))
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from _nv_common import NoiseVoices  # noqa: E402
 
-from pe78.cymb import PE78_Cymbals_Maracas  # noqa: E402
-from pe78.snare import PE78_Snare  # noqa: E402
-
-FS = 48000
-N_WIN = 24000            # analysis window: bins of FS/N_WIN = 2 Hz
-N_SETTLE = 24000         # samples discarded before the window
-FREQS = (100.0, 1000.0, 3560.0, 15000.0)   # multiples of 2 Hz
-GM = 1e-3                # [A/V] fixed transconductance
-REL_TOL = 1e-9
+FS = 96000
+FREQS = (200.0, 1000.0, 3000.0, 12000.0)    # integer number of periods in N_WIN
+N_SETTLE, N_WIN = 19200, 4800
+REL_TOL = 1e-6
 
 
-def _s(f, fs):
-    """Bilinear-transform image of s = j*2*pi*f."""
-    return 1j * 2.0 * fs * np.tan(np.pi * f / fs)
+def _analytic(nv, f, src):
+    s = 1j * 2.0 * FS * np.tan(np.pi * f / FS)
+    u, l = nv._vr9u.Rp, nv._vr9l.Rp
+    Y = np.zeros((5, 5), dtype=complex)        # c3, c4, W, X, O
+
+    def y(p, q, val):
+        Y[p, p] += val
+        if q is not None:
+            Y[q, q] += val
+            Y[p, q] -= val
+            Y[q, p] -= val
+    y(0, None, 1 / nv.R53 + 1 / (s * nv.L1) + s * nv.C30)
+    y(1, None, 1 / nv.R54 + 1 / (s * nv.L2))
+    y(0, 2, 1 / u)
+    y(1, 2, 1 / l)
+    y(2, 3, 1 / nv.R55)
+    y(3, 4, s * nv.C31)
+    y(4, None, 1 / nv.Rload)
+    I = np.zeros(5, dtype=complex)
+    I[src] = -1.0                               # Ic leaves the collector node
+    return np.linalg.solve(Y, I)
 
 
-def _bin(x, f, fs):
-    """Complex amplitude of x at frequency f (integer number of periods)."""
-    n = np.arange(len(x))
-    return np.dot(x, np.exp(-2j * np.pi * f * n / fs))
+def _measured(nv, f, src):
+    n = N_SETTLE + N_WIN
+    k = np.arange(n)
+    ic = np.sin(2 * np.pi * f * k / FS)
+    v = np.zeros((n, 3))
+    for i in range(n):
+        nv._step_collectors(ic[i] if src == 0 else 0.0, ic[i] if src == 1 else 0.0)
+        v[i] = (nv._V_col3, nv._V_col4, nv._V_out)
+    w = v[N_SETTLE:]
+    kk = k[N_SETTLE:]
+    e = np.exp(-2j * np.pi * f * kk / FS)
+    # sin = Im(e^{jwt}): phasor of the response relative to the source phasor -j
+    return (w * e[:, None]).sum(axis=0) * 2.0 / N_WIN / (-1j)
 
 
-def _ratio(step, f):
-    """V_col / I_c at frequency f, with step(x) -> (v_col, i_c)."""
-    n = np.arange(N_SETTLE + N_WIN)
-    x = np.cos(2.0 * np.pi * f * n / FS)
-    v = np.empty_like(x)
-    i = np.empty_like(x)
-    for k in range(len(x)):
-        v[k], i[k] = step(x[k])
-    return _bin(v[N_SETTLE:], f, FS) / _bin(i[N_SETTLE:], f, FS)
-
-
-def _z_snare(m, f):
-    s = _s(f, m.fs)
-    y = 1.0 / (s * m.L1_val) + s * m.C30 + 1.0 / m.R53 + 1.0 / m.VR9U
-    return 1.0 / y
-
-
-def _z_cymb(m, f):
-    s = _s(f, m.fs)
-    y = 1.0 / (s * m.L2_val) + 1.0 / m.R54 + 1.0 / m.VR9L
-    return 1.0 / y
-
-
-def _check(name, z_wdf, z_ref, f):
-    err = abs(z_wdf - z_ref) / abs(z_ref)
-    assert err < REL_TOL, (
-        f"{name} f={f:g} Hz: |Z_wdf|={abs(z_wdf):.6g} Ohm, "
-        f"|Z_ref|={abs(z_ref):.6g} Ohm, rel err {err:.3g}")
-
-
-def test_snare_collector_impedance():
-    for vr9u in (25e3, 110e3):
+def _check(pos):
+    for src in (0, 1):
         for f in FREQS:
-            m = PE78_Snare(FS, vr9u=vr9u)
+            nv = NoiseVoices(FS, vr9_pos=pos)
+            got = _measured(nv, f, src)
+            exp = _analytic(nv, f, src)[[0, 1, 4]]
+            err = np.abs(got - exp) / np.max(np.abs(exp))
+            assert np.all(err < REL_TOL), (pos, src, f, got, exp, err)
 
-            def step(x):
-                return m._step_tr3_collector(GM, x), GM * x
 
-            _check(f"snare VR9U={vr9u:g}", _ratio(step, f), _z_snare(m, f), f)
+def test_default_vr9():
+    _check(None)
 
 
-def test_cymb_collector_impedance():
-    for vr9l in (100e3, 195e3):
-        for f in FREQS:
-            m = PE78_Cymbals_Maracas(FS, vr9l=vr9l)
+def test_vr9_half():
+    _check(0.5)
 
-            def step(x):
-                v = m._step_tr4(0.62, GM, x)
-                return v, GM * m._v_base     # current after the C29 high-pass
 
-            _check(f"cymb VR9L={vr9l:g}", _ratio(step, f), _z_cymb(m, f), f)
+def test_vr9_one_pot():
+    nv = NoiseVoices(FS)
+    for p in (0.1, 0.5, 0.9):
+        nv.set_vr9(p)
+        assert abs(nv._vr9u.Rp + nv._vr9l.Rp - nv.VR9) < 1e-6
+        assert abs(nv._vr9u.Rp - p * nv.VR9) < 1e-6
 
 
 if __name__ == "__main__":
-    test_snare_collector_impedance()
-    test_cymb_collector_impedance()
+    test_default_vr9()
+    test_vr9_half()
+    test_vr9_one_pot()
     print("ok")

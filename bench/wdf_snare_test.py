@@ -16,7 +16,7 @@ import matplotlib.pyplot as plt
 from scipy.io import wavfile
 import scipy.signal
 
-from pe78.drums import SnareDrum
+from pe78.noise_voices import NoiseVoices
 
 # --- NORMALIZATION AND WAV EXPORT ---
 def save_normalized_wav(filename, data, fs, target_db=-3):
@@ -40,7 +40,7 @@ def save_normalized_wav(filename, data, fs, target_db=-3):
 
 # --- Simulation and Export ---
 fs = 48000
-snare = SnareDrum(fs)
+snare = NoiseVoices(fs)          # C15: snare, cymbals, maracas in one object
 duration = 0.5
 n_samples = int(fs * duration)
 
@@ -52,14 +52,14 @@ output = np.zeros(n_samples)
 
 for i in range(n_samples):
 #    output[i] = snare.model.process_sample(trigger[i], noise[i] * 0.04)
-    output[i] = snare.tick(trigger[i])
+    output[i] = snare.tick(trigger[i], 0.0, 0.0, 0.0)
 
 peak   = np.max(np.abs(output))
 active = np.sum(np.abs(output) > peak * 0.01) if peak > 1e-9 else 0
 print(f"  Snare diagnostic: peak={peak:.5f} V, "
       f"active samples={active} ({active/fs*1000:.0f} ms)")
 if peak < 1e-4:
-    print("  → ALMOST ZERO SIGNAL: envelope bug in PE78_Snare "
+    print("  → ALMOST ZERO SIGNAL: envelope bug in the snare front end "
           "(D7 not conducting). The snare will be silent until fixed.")
 else:
     print("  → Snare OK")

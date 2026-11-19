@@ -14,7 +14,9 @@ any pywdf installed with pip; the path actually imported is printed.
 Conditions follow bench/: tonal voices 48 kHz, 5 V trigger (wdf_twint_test.py);
 snare 48 kHz, 4.5 V trigger from sample 10 (wdf_snare_test.py); cymbals 96 kHz,
 20 ms pulses at 50/550/1050 ms (wdf_cymb_test.py). Added: 100 ms gates, VR4 and
-VR9 sweeps. Outputs are not normalised. Noise is seeded and passed explicitly,
+VR9 sweeps. From C15 snare and cymbal cases run NoiseVoices (the other inputs
+at 0 V, same names and keys as before) and noise_lc_sd adds a snare hit at
+0.25 s on a ringing long cymbal. Outputs are not normalised. Noise is seeded and passed explicitly,
 with the level used by drums.py (sigma = NOISE_STD), so it is identical across
 runs and pywdf versions.
 
@@ -114,18 +116,21 @@ def snare_cases():
 
 
 def run_snare(drums, cfg, fs, n, noise):
-    d = drums.SnareDrum(fs)
+    # C15: the snare is part of NoiseVoices (cymbal and maracas inputs at 0 V);
+    # keys kept from the old SnareDrum cases (V_base = TR3 base, V_col = TR3
+    # collector) so that compare_baseline.py can compare across C15.
+    d = drums.NoiseVoices(fs)
     if cfg["vr9u"] is not None:
-        d.model.set_vr9u(cfg["vr9u"])
+        d.set_vr9(cfg["vr9u"] / d.VR9)
     trig = gate(n, fs, 10.0 / fs, cfg["gate_ms"] / 1e3, 4.5)
-    keys = ("_V_c27", "_V_base", "_V_col")
+    keys = (("V_c27", "_V_c27"), ("V_base", "_V_b3"), ("V_col", "_V_col3"))
     out = np.empty(n)
-    st = {k: np.empty(n) for k in keys}
+    st = {k: np.empty(n) for k, _ in keys}
     for i in range(n):
-        out[i] = d.tick(trig[i], noise_sample=noise[i])
-        for k in keys:
-            st[k][i] = getattr(d.model, k)
-    return {"out": out, **{k.lstrip("_"): v for k, v in st.items()}}
+        out[i] = d.tick(trig[i], 0.0, 0.0, 0.0, noise=noise[i])
+        for k, attr in keys:
+            st[k][i] = getattr(d, attr)
+    return {"out": out, **st}
 
 
 def cymb_cases():
@@ -137,26 +142,33 @@ def cymb_cases():
     for vr9l in (100e3, 195e3):
         n = int(0.6 * fs)
         cases.append((f"cymb_lc_vr9l_{int(vr9l / 1e3)}k", fs, dict(gate_ms=20, vr9l=vr9l, voices="lc"), n))
+    # C15: snare hit while the long cymbal rings (shared noise node and VR9)
+    cases.append(("noise_lc_sd", fs, dict(gate_ms=20, vr9l=None, voices="lc", sd_s=0.25), int(0.6 * fs)))
     return cases
 
 
 def run_cymb(drums, cfg, fs, n, noise):
-    d = drums.CymbDrum(fs)
+    # C15: cymbals and maracas are part of NoiseVoices (snare input at 0 V
+    # unless cfg["sd_s"] is set); keys kept from the old CymbDrum cases
+    # (V_col = TR4 collector).
+    d = drums.NoiseVoices(fs)
     if cfg["vr9l"] is not None:
-        d.model.set_vr9l(cfg["vr9l"])
+        d.set_vr9(1.0 - cfg["vr9l"] / d.VR9)
     g = cfg["gate_ms"] / 1e3
     voices = cfg["voices"].split(",")
     lc = gate(n, fs, 0.05, g, 4.5)
     sc = gate(n, fs, 0.55, g, 4.5) if "sc" in voices else np.zeros(n)
     mr = gate(n, fs, 1.05, g, 4.5) if "mr" in voices else np.zeros(n)
-    keys = ("_V_env", "_V_c23", "_V_c24", "_V_c26", "_V_col")
+    sd = gate(n, fs, cfg["sd_s"], 0.01, 4.5) if cfg.get("sd_s") is not None else np.zeros(n)
+    keys = (("V_env", "_V_env"), ("V_c23", "_V_c23"), ("V_c24", "_V_c24"),
+            ("V_c26", "_V_c26"), ("V_col", "_V_col4"))
     out = np.empty(n)
-    st = {k: np.empty(n) for k in keys}
+    st = {k: np.empty(n) for k, _ in keys}
     for i in range(n):
-        out[i] = d.tick(lc[i], sc[i], mr[i], noise_sample=noise[i])
-        for k in keys:
-            st[k][i] = getattr(d.model, k)
-    return {"out": out, **{k.lstrip("_"): v for k, v in st.items()}}
+        out[i] = d.tick(sd[i], lc[i], sc[i], mr[i], noise=noise[i])
+        for k, attr in keys:
+            st[k][i] = getattr(d, attr)
+    return {"out": out, **st}
 
 
 # -----------------------------------------------------------------------------

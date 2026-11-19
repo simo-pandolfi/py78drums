@@ -3,39 +3,17 @@ PE 1978 Virtual Analog DIY e-Drums
 Copyright (c) 2026 Simone Pandolfi
 SPDX-License-Identifier: MIT OR Apache-2.0
 ==============================================================
-Test and simulation for CymbDrum (PE 1978, Fig. 6 — bottom section).
-Adapted for PE78_Cymbals_Maracas (cymb.py).
+Test and simulation for the cymbals and maracas (PE 1978, Fig. 6 — bottom section).
+Adapted for NoiseVoices (pe78/noise_voices.py, C15); was PE78_Cymbals_Maracas.
 
-Public interface / accessible state of PE78_Cymbals_Maracas:
-
-  Method:
-    drum.process_sample(v_lc, v_sc, v_mr, noise_sample) -> V_out
-      noise_sample : sigma ≈ 1, scaled internally by NOISE_AMP = 0.04
-
-  State updated after each process_sample():
-    drum._V_env   float  ENV node voltage [V]
-    drum._V_c23   float  C23 voltage, LC hold capacitor [V]
-    drum._V_c24   float  C24 voltage, SC hold capacitor [V]
-    drum._V_c26   float  C26 voltage, MR hold capacitor [V] (physical sign)
-    drum._V_col   float  TR4 collector voltage [V]
-
-  Class constants relevant for analysis:
-    drum.V_ON, drum.R47, drum.C23, drum.R44, drum.C24,
-    drum.R46, drum.C26, drum.R54, drum.L2_val,
-    drum.hFE, drum.Is_b, drum.Vbe_th, drum.Vt, drum.R52, drum.Vcc
-
-  gm(t) is not a class attribute — it is reconstructed here using the 
-  Ebers-Moll formula used internally by _step_tr4:
-    gm = hFE · Is_b · exp(V_env / Vt) / Vt  (clamped to saturation)
-
-Differences from the old test (PE78_Cymbals_Maracas):
-  _V_env_prev          ->  _V_env
-  _V_c26_prev          ->  _V_c26
-  _c23.wave_to_voltage()->  _V_c23
-  _c24.wave_to_voltage()->  _V_c24
-  .Vbe                 ->  .Vbe_th
-  .L2                  ->  .L2_val
-  noise[i] * 0.04      ->  noise[i]   (internal NOISE_AMP = 0.04 already scales)
+Interface of NoiseVoices used here (snare input kept at 0 V):
+    drum.tick(v_sd, v_lc, v_sc, v_mr, noise) -> V_out on RLoad
+      noise : sigma = 1, scaled internally by NOISE_AMP (pe78/noise.py)
+    State after each tick: _V_env, _V_c23, _V_c24, _V_c26, _V_col4, _V_out
+    Constants: V_ON, R47, C23, R44, C24, R46, C26, R54, L2, hFE, Is_b4, Vt,
+    R52, C29
+  gm(t) is reconstructed here: gm = hFE * Is_b4 * exp(V_env / Vt) / Vt
+  (no clamp: C11).
 
 Test structure:
   1. Three separate pulses — LC t=50ms, SC t=550ms, MR t=1050ms
@@ -51,7 +29,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 from scipy.io import wavfile
 
-from pe78.cymb import PE78_Cymbals_Maracas
+from pe78.noise_voices import NoiseVoices
 
 # ---------------------------------------------------------------------------
 # Simulation parameters
@@ -74,9 +52,9 @@ def simulate(seed=42):
 
     Note on noise:
       noise_sample has sigma=1; the NOISE_AMP=0.04 factor is applied
-      internally by process_sample(). Do not prescale the noise.
+      internally by tick(). Do not prescale the noise.
     """
-    drum = PE78_Cymbals_Maracas(FS)
+    drum = NoiseVoices(FS)          # C15: snare idle
 
     rng   = np.random.default_rng(seed)
     noise = rng.standard_normal(N)   # sigma = 1
@@ -100,21 +78,20 @@ def simulate(seed=42):
     trig_mr[mr_on] = drum.V_ON
 
     for i in range(N):
-        V_out[i] = drum.process_sample(
-            trig_lc[i], trig_sc[i], trig_mr[i],
+        V_out[i] = drum.tick(
+            0.0, trig_lc[i], trig_sc[i], trig_mr[i],
             noise[i]          # sigma ≈ 1; internal NOISE_AMP handles scaling
         )
 
-        # State updated after process_sample()
+        # State updated after tick()
         V_env[i] = drum._V_env   # ENV node (physical voltage)
         V_c23[i] = drum._V_c23   # LC hold capacitor
         V_c24[i] = drum._V_c24   # SC hold capacitor
         V_c26[i] = drum._V_c26   # MR hold capacitor
 
     # gm derived from V_env — Ebers-Moll formula identical to internal _step_tr4.
-    # gm = hFE · Is_b · exp(V_env / Vt) / Vt,  clamped to saturation (Vcc-0.2)/R54.
-    Ic_em = drum.hFE * drum.Is_b * np.exp(np.clip(V_env / drum.Vt, -40.0, 40.0))
-    Ic_em = np.minimum(Ic_em, (drum.Vcc - 0.2) / drum.R54)
+    # gm = hFE · Is_b4 · exp(V_env / Vt) / Vt (no clamp, C11).
+    Ic_em = drum.hFE * drum.Is_b4 * np.exp(np.clip(V_env / drum.Vt, -40.0, 40.0))
     gm = Ic_em / drum.Vt
 
     return {
@@ -138,21 +115,20 @@ def print_analysis(res):
     print(f'  LC  τ = R47×C23  = {drum.R47 * drum.C23 * 1000:.0f} ms')
     print(f'  SC  τ = R44×C24  = {drum.R44 * drum.C24 * 1000:.0f} ms')
     print(f'  MR  τ = R46×C26  = {drum.R46 * drum.C26 * 1000:.0f} ms')
-    print(f'  L2||R54 pole at  = {drum.R54 / (2 * np.pi * drum.L2_val):.0f} Hz')
+    print(f'  L2||R54 pole at  = {drum.R54 / (2 * np.pi * drum.L2):.0f} Hz')
 
     # C29 pole with r_pi calculated via Ebers-Moll at V_env = 0.7 V (typical point)
     V_typ    = 0.7
-    Ic_typ   = drum.hFE * drum.Is_b * np.exp(np.clip(V_typ / drum.Vt, -40.0, 40.0))
-    Ic_typ   = min(Ic_typ, (drum.Vcc - 0.2) / drum.R54)
+    Ic_typ   = drum.hFE * drum.Is_b4 * np.exp(np.clip(V_typ / drum.Vt, -40.0, 40.0))
     gm_typ   = Ic_typ / drum.Vt
     r_pi_typ = drum.hFE / gm_typ
     print(f'  C29 pole (r_pi @ 0.7 V)  = {1 / (2 * np.pi * r_pi_typ * drum.C29):.0f} Hz')
     print()
 
     gm = res['gm']
-    gm_ss_lc = drum.hFE * drum.Is_b * np.exp(np.clip(0.62 / drum.Vt, -40, 40)) / drum.Vt
+    gm_ss_lc = drum.hFE * drum.Is_b4 * np.exp(np.clip(0.62 / drum.Vt, -40, 40)) / drum.Vt
     print('=== TR4 (Ebers-Moll) ===')
-    print(f'  Is_b          = {drum.Is_b:.3e} A')
+    print(f'  Is_b          = {drum.Is_b4:.3e} A')
     print(f'  gm_ss @ 620mV = {gm_ss_lc*1e3:.2f} mA/V  (LC operating point)')
     print(f'  gm_max        = {gm.max()*1e3:.3f} mA/V  at t = {gm.argmax()/FS*1000:.1f} ms')
     # "active" = gm > 1% of its global maximum
@@ -198,7 +174,7 @@ def plot(res, outpath):
         (res['V_c23'], 'V [V]',     'C23 — Long Cymbal (hold)',        '#e74c3c'),
         (res['V_c24'], 'V [V]',     'C24 — Short Cymbal (hold)',       '#f39c12'),
         (res['V_c26'], 'V [V]',     'C26 — Maracas (hold)',            '#2ecc71'),
-        (res['V_out'], 'V [V]',     'Output (→ VR9L → C31)',           '#e67e22'),
+        (res['V_out'], 'V [V]',     'Output on RLoad (VR9 wiper → R55 → C31)',           '#e67e22'),
     ]
 
     fig, axes = plt.subplots(len(panels), 1,
@@ -215,9 +191,9 @@ def plot(res, outpath):
 
     axes[-1].set_xlabel('Time [ms]')
     fig.suptitle(
-        'PE Noise Drums — CymbDrum  [PE78_Cymbals_MNA · Ebers-Moll NR]\n'
+        'PE Noise Drums — NoiseVoices (cymbals)\n'
         'LC (t=50ms)  ·  SC (t=550ms)  ·  MR (t=1050ms)\n'
-        'RootRType ENV + Ebers-Moll TR4 base NR + D9 root MR',
+        'Bases root (TR3, TR4, N) + maracas root (D8, D9)',
         fontsize=11, fontweight='bold')
 
     plt.savefig(outpath, dpi=150, bbox_inches='tight')
@@ -237,7 +213,7 @@ def save_wav(data, path, fs=FS):
 # Main
 # ---------------------------------------------------------------------------
 if __name__ == '__main__':
-    print('Simulation CymbDrum (PE78_Cymbals_Maracas) — three separate pulses...')
+    print('Simulation NoiseVoices (cymbals, maracas) — three separate pulses...')
     res = simulate()
     print('Completed.\n')
 

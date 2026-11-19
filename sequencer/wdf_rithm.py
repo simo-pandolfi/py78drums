@@ -11,11 +11,11 @@ rhythmic synthesis.
 
 Instruments:
   bd     Bass Drum          (TonalDrum)
-  sd     Snare Drum         (SnareDrum) — Latin/Rock switch
+  sd     Snare Drum         (NoiseVoices) — Latin/Rock switch
   hb     Hi Bongo           (TonalDrum) — shares the SD trigger
   lb     Low Bongo          (TonalDrum)
   cd     Conga Drum         (TonalDrum) — present on M252 AA
-  cymb   Long/Short/Maracas (CymbDrum)
+  lc/sc/mr Long/Short cymbal, Maracas (NoiseVoices, same object as sd)
   cl     Claves             (TonalDrum) — Latin/Rock switch
 
 Notes on original PE 1978 wiring:
@@ -38,7 +38,7 @@ from scipy.io import wavfile
 from patterns import PATTERNS
 
 # pe78_fast is not used until it is realigned with pe78/ (it reverts C1).
-from pe78.drums import (TonalDrum, SnareDrum, CymbDrum,
+from pe78.drums import (TonalDrum, NoiseVoices,
     BDO_PARAMS, CONGA_PARAMS, HBONGO_PARAMS, LBONGO_PARAMS, CLAVES_PARAMS)
 
 
@@ -55,54 +55,22 @@ HIT_SAMPLES  = 960       # Trigger pulse duration ≈ 20 ms @ 48 kHz
 # unchanged after the twin-T output fix (pre-amp input, same node as sd/cymb).
 GAIN = {
     'bd':    0.3046,
-    'sd':    6.00,
+    'noise': 6.00,      # NoiseVoices (snare + cymbals + maracas, one output, C15)
     'hb':    0.3046,
     'lb':    0.3046,
     'cd':    0.3046,
     'cl':    0.3046,
-    'cymb':  10.00,
 }
 
 
 # ---------------------------------------------------------------------------
-# Single Hit Pre-render (TonalDrum and SnareDrum instruments only)
+# Noise voices
 # ---------------------------------------------------------------------------
-# ARCHITECTURAL NOTE — why LC/SC/MR are not here:
-#
-# LC, SC, and MR are three inputs to the same analog circuit (CymbDrum)
-# that share a single ENV node. The ENV node charges through all three 
-# branches; specifically, the MR (D9) branch requires D9's cathode to have 
-# a bias voltage provided by the other branches (LC, SC) to conduct. 
-# On an isolated instance with only MR triggered and LC=SC=0, the ENV 
-# node stays at 0V → D9 doesn't conduct → C26 doesn't charge → no signal. 
-# This is the correct behavior of the physical circuit: in the M253, 
-# the three channels are always connected in parallel to the same ENV node.
-#
-# For this reason, CymbDrum is treated as a persistent circuit throughout 
-# the synthesis (see `synthesize`): it receives the three simultaneous 
-# triggers from the pattern's current step at each sample, and its output 
-# is summed directly into the master buffer — exactly as in the physical circuit.
-
-def _diagnose_snare(fs):
-    """
-    Quick snare model diagnosis: prints peak and active duration.
-    Distinguishes between 'silent signal' and 'absent signal'.
-    """
-    dr  = SnareDrum(fs)
-    n   = int(0.5 * fs)
-    out = np.zeros(n)
-    for i in range(n):
-        out[i] = dr.tick(4.5 if i < HIT_SAMPLES else 0.0)
-    peak   = np.max(np.abs(out))
-    active = np.sum(np.abs(out) > peak * 0.01) if peak > 1e-9 else 0
-    print(f"  Snare diagnostic: peak={peak:.5f} V, "
-          f"active samples={active} ({active/fs*1000:.0f} ms)")
-    if peak < 1e-4:
-        print("  → NEAR-ZERO SIGNAL: envelope bug in PE78_Snare_FullModel "
-              "(D7 not conducting). Snare will be silent until fixed.")
-    else:
-        print("  → Snare OK")
-
+# Snare, long/short cymbal and maracas are one analog circuit (PE 1978 Fig. 6):
+# shared noise node N, shared balance pot VR9 and output R55/C31. They are one
+# persistent NoiseVoices object (C15) fed with the four triggers of the current
+# step; its single output goes to the master bus with GAIN['noise'] (= the old
+# snare gain: the snare level is unchanged, the cymbal level is now set by VR9).
 
 
 def synthesize(rhythm_name, bpm=BPM_DEFAULT, num_bars=2,
@@ -128,8 +96,6 @@ def synthesize(rhythm_name, bpm=BPM_DEFAULT, num_bars=2,
     total_samples = step_samples * pattern_steps * num_bars
     master        = np.zeros(total_samples)
 
-    print(f"\nSnare diagnosis:")
-    _diagnose_snare(fs)
 
     # --- 1. Instrument Initialization (WDF Trees) ---
     print(f"\nInitializing instruments for '{rhythm_name}'...")
@@ -137,16 +103,15 @@ def synthesize(rhythm_name, bpm=BPM_DEFAULT, num_bars=2,
     
     if 'bd' in pattern: inst_models['bd'] = TonalDrum(fs, **BDO_PARAMS)
     # The SD bus triggers Hi Bongo and Snare Drum simultaneously
-    if 'hb' or 'sd' in pattern: inst_models['hb'] = TonalDrum(fs, **HBONGO_PARAMS)
+    if 'hb' in pattern or 'sd' in pattern: inst_models['hb'] = TonalDrum(fs, **HBONGO_PARAMS)
     if 'lb' in pattern: inst_models['lb'] = TonalDrum(fs, **LBONGO_PARAMS)
     if 'cl' in pattern: inst_models['cl'] = TonalDrum(fs, **CLAVES_PARAMS)
     if 'cd' in pattern: inst_models['cd'] = TonalDrum(fs, **CONGA_PARAMS)
-    if 'sd' in pattern: inst_models['sd'] = SnareDrum(fs)
 
-    # Shared Cymb circuit for LC, SC, MR
-    has_cymb = any(k in pattern for k in ('lc', 'sc', 'mr'))
-    if has_cymb:
-        cymb_model = CymbDrum(fs)
+    # Snare, cymbals and maracas: one circuit (shared noise node, VR9, R55/C31)
+    has_noise = any(k in pattern for k in ('sd', 'lc', 'sc', 'mr'))
+    if has_noise:
+        noise_model = NoiseVoices(fs)
 
     # --- 2. Sequence Extraction for convenience ---
     seq_bd = pattern.get('bd', [0]*STEPS)
@@ -178,10 +143,6 @@ def synthesize(rhythm_name, bpm=BPM_DEFAULT, num_bars=2,
             v = trig_v if seq_bd[step_idx] == 1 else 0.0
             sample_mix += inst_models['bd'].tick(v) * GAIN['bd']
 
-        if 'sd' in inst_models:
-            v = trig_v if seq_sd[step_idx] == 1 else 0.0
-            sample_mix += inst_models['sd'].tick(v) * GAIN['sd']
-
         if 'hb' in inst_models:
             # Sum of physical output from HB and SD nodes sharing the trigger
             v = trig_v if seq_hb[step_idx] or seq_sd[step_idx] == 1 else 0.0
@@ -200,13 +161,13 @@ def synthesize(rhythm_name, bpm=BPM_DEFAULT, num_bars=2,
             v = trig_v if seq_cd[step_idx] == 1 else 0.0
             sample_mix += inst_models['cd'].tick(v) * GAIN['cd']
 
-        # Process Cymb circuit (requires 3 input voltages)
-        if has_cymb:
+        # Noise voices: snare, cymbals, maracas (one circuit, one output)
+        if has_noise:
+            v_sd = trig_v if seq_sd[step_idx] == 1 else 0.0
             v_lc = trig_v if seq_lc[step_idx] == 1 else 0.0
             v_sc = trig_v if seq_sc[step_idx] == 1 else 0.0
             v_mr = trig_v if seq_mr[step_idx] == 1 else 0.0
-            cymb_out = cymb_model.tick(v_lc, v_sc, v_mr)
-            sample_mix += cymb_out * GAIN['cymb']
+            sample_mix += noise_model.tick(v_sd, v_lc, v_sc, v_mr) * GAIN['noise']
 
         # Write to master bus
         master[i] = sample_mix

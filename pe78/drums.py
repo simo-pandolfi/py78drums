@@ -4,25 +4,26 @@
 """
 PE78 Drum Engine — Common interface
 =====================================
-Wrapper classes providing a uniform tick() interface for all nine voices
-of the PE78 / M253 drum machine.
+Wrapper classes with a tick() interface for the tonal voices of the PE78 /
+M253 drum machine. The noise voices (snare, cymbals, maracas) are one circuit
+and one object: pe78.noise_voices.NoiseVoices (C15).
 
 Voices:
   bd     Bass Drum          (AnalogDrum, tonal)
-  hb     Hi Bongo           (AnalogDrum, tonal) -- shares trigger bus with SnareDrum
+  hb     Hi Bongo           (AnalogDrum, tonal) -- also triggered by the snare (D6)
   lb     Low Bongo          (AnalogDrum, tonal)
   cl     Claves             (AnalogDrum, tonal)
   cd     Conga              (AnalogDrum, tonal)
-  sd     Snare Drum         (SnareDrum,  noise-based)
-  lc     Long Cymbal        (CymbDrum,   noise-based)
-  sc     Short Cymbal       (CymbDrum,   noise-based)
-  mr     Maracas            (CymbDrum,   noise-based)
+  sd     Snare Drum         (NoiseVoices, noise-based)
+  lc     Long Cymbal        (NoiseVoices, noise-based)
+  sc     Short Cymbal       (NoiseVoices, noise-based)
+  mr     Maracas            (NoiseVoices, noise-based)
 
 Note on hb/sd trigger sharing:
   The snare output of the M253 (pin 5) also drives the Hi Bongo trigger line
   (pin 6) through D6: every SD hit triggers HB as well, an HB hit alone does
   not trigger the snare. R21 (12 kOhm, HB line to GND) is the path through
-  which C22 of the snare discharges after the gate (see pe78/snare.py). The
+  which C22 of the snare discharges after the gate (see pe78/noise_voices.py). The
   HB voice is driven with the full gate level; the D6 drop (HB line about
   4.1 V) and the slow fall of the line after a snare gate are not modelled.
 
@@ -34,11 +35,10 @@ Instrument parameter dictionaries:
 
 import numpy as np
 
-from pe78.snare import PE78_Snare
-from pe78.cymb  import PE78_Cymbals_Maracas
 from pe78.twint import EdgeDetector, TwinTDrum
 
 NOISE_STD = 1.0     # [-]  unit-variance noise; the level (B1) is set in pe78/noise.py
+from pe78.noise_voices import NoiseVoices  # noqa: E402,F401  (re-export)
 
 
 # ---------------------------------------------------------------------------
@@ -54,54 +54,6 @@ class BaseWDFDrum:
         """Advance the model by one sample. Override in subclasses."""
         raise NotImplementedError
 
-
-# ---------------------------------------------------------------------------
-#  Noise-based voices
-# ---------------------------------------------------------------------------
-class SnareDrum(BaseWDFDrum):
-    """Snare Drum — PE78 Fig. 6 top section (filtered white noise)."""
-
-    def __init__(self, fs, noise_std=NOISE_STD):
-        super().__init__(fs)
-        self.model     = PE78_Snare(fs)
-        self.noise_std = noise_std
-
-    def tick(self, v_trig, noise_sample=None):
-        """
-        Parameters
-        ----------
-        v_trig : float
-            Trigger voltage (4.5 V = on, 0 V = off).
-        noise_sample : float or None
-            White noise sample (sigma = 1). Generated internally if None.
-        """
-        if noise_sample is None:
-            noise_sample = np.random.normal(0, self.noise_std)
-        return self.model.process_sample(v_trig, noise_sample)
-
-
-class CymbDrum(BaseWDFDrum):
-    """Long Cymbal + Short Cymbal + Maracas — PE78 Fig. 6 bottom section."""
-
-    def __init__(self, fs, noise_std=NOISE_STD):
-        super().__init__(fs)
-        self.model     = PE78_Cymbals_Maracas(fs)
-        self.noise_std = noise_std
-
-    def tick(self, v_trig_lc, v_trig_sc, v_trig_mr,
-                       noise_sample=None):
-        """
-        Parameters
-        ----------
-        v_trig_lc, v_trig_sc, v_trig_mr : float
-            Trigger voltages for each voice (4.5 V = on, 0 V = off).
-        noise_sample : float or None
-            White noise sample (sigma = 1). Generated internally if None.
-        """
-        if noise_sample is None:
-            noise_sample = np.random.normal(0, self.noise_std)
-        return self.model.process_sample(
-            v_trig_lc, v_trig_sc, v_trig_mr, noise_sample)
 
 # ---------------------------------------------------------------------------
 #  Tonal voices
