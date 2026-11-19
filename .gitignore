@@ -11,7 +11,8 @@ out/
 *_fixed.py
 *Copia*
 desktop.ini
-old.zip
+*.zip
+*.patch
 
 # File di sviluppo locale
 *.pyc
