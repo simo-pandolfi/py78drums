@@ -79,7 +79,9 @@ class EdgeDetector:
       R15 (47 kOhm): shunt Node_T2 to GND
       R13 (27 kOhm): current limiter;    tau2 = C8*R13 ~= 4 ms
       D2  (1N4148):  half-wave rectifier, passes only positive spikes
-                     (rising edge of the trigger gate)
+                     (rising edge of the trigger gate); LTspice standard.dio
+                     Is = 2.52 nA, N = 1.752, as D6-D9 in noise_voices.py
+                     (drop 0.38/0.48/0.58 V at 0.01/0.1/1 mA)
 
     Parameters
     ----------
@@ -90,6 +92,11 @@ class EdgeDetector:
     c_val : float
         C8 capacitance in Farad.
     """
+
+    # D2 1N4148, LTspice standard.dio (same constants as noise_voices.py)
+    D_IS   = 2.52e-9      # [A]  saturation current
+    D_N    = 1.752        # [-]  emission coefficient
+    VT_27C = 25.852e-3    # [V]  kT/q at 27 C (LTspice)
 
     def __init__(self, fs, r_vals, c_val):
         r14 = float(r_vals[0])
@@ -107,7 +114,10 @@ class EdgeDetector:
         s_c8       = wdf.SeriesAdaptor(p_t1, self.c8)         # series C8
         p_t2       = wdf.ParallelAdaptor(s_c8, self.r15)      # Node_T2: || R15
         self.s_r13 = wdf.SeriesAdaptor(p_t2, self.r13)        # series R13
-        self.diode = wdf.Diode(self.s_r13, Is=2.52e-9)        # D2 1N4148
+        # D2 1N4148. pywdf Diode uses Vt*n_diodes as thermal voltage, so
+        # n_diodes = D_N gives i = Is*(exp(v/(N*Vt)) - 1).
+        self.diode = wdf.Diode(self.s_r13, Is=self.D_IS, Vt=self.VT_27C,
+                               n_diodes=self.D_N)
 
     def process_sample(self, v_trigger: float) -> float:
         """
