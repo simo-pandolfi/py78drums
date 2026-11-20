@@ -45,6 +45,9 @@ C  Collectors and output (C15, D3-A): one linear WDF, root RTypeAdaptor at the
 
 Coupling: A -> B through V_C27 (same sample), B -> A through V_base_TR3
 (one sample, measured 3e-4 V on V_C27, C6); M <-> ENV one sample (C9).
+HB line (C13): A -> HB voice through hb_line() (same sample), HB voice -> A
+through the D6 current (tick(..., hb_i_d6), one sample); without it the HB
+line is R21 alone (tests/test_hb_line.py).
 TR3/TR4 are linear in the collector (no saturation, no high injection):
 tests/test_linear_region.py.
 
@@ -97,6 +100,11 @@ class _SnareFrontEnd:
     LTspice BC547B card (BC108B in the schematic; collector on the +5 V rail,
     7805, 4.7 V on load: forward active only, the rail does not enter).
     1N4148: LTspice standard.dio.
+    R21 is the pull-down of the HB edge detector (its R14, user 2026-11-20);
+    the rest of that detector (C8, R15, R13, D2) is not in this junction.
+    After each step: V_h (HB line), v1_oc and r_th1 (Thevenin of v1 seen by
+    D6), used by the HB voice (TwinTDrum with d6=True, C13). With the HB voice
+    simulated, the D6 current is the one of that voice (previous sample).
     """
 
     C22, R48, R21 = 0.1e-6, 22e3, 12e3
@@ -112,10 +120,13 @@ class _SnareFrontEnd:
         self._on = False
         self.V_c27 = 0.0
         self.V_b5 = 0.0
+        self.V_h = 0.0
+        self.v1_oc = 0.0
         self.w = 0.0
         self.v6 = 0.0
         self.iter_max = 0
         self.build()
+        self.r_th1 = self._matrices()[1][0, 2]
 
     def build(self):
         self.m253 = ResistiveVoltageSource(self.R_OFF)
@@ -153,8 +164,11 @@ class _SnareFrontEnd:
             self._cache[key] = m
         return m
 
-    def step(self, on, v_on, v_base3_prev):
-        """Advance one sample; returns V_C27."""
+    def step(self, on, v_on, v_base3_prev, i_d6=None):
+        """Advance one sample; returns V_C27.
+
+        i_d6: current of D6 imposed by the HB voice (its value of the previous
+        sample, C13); None: D6 into R21 alone (HB voice not simulated)."""
         if on != self._on:
             self.m253.set_resistance(self.R_ON if on else self.R_OFF)
             self._on = on
@@ -176,8 +190,11 @@ class _SnareFrontEnd:
             u = 1.0 + ie / self.D_IS
             vA = w + vt_d * np.log(u)
             dvA = 1.0 + vt_d * die / (self.D_IS * u)
-            e6, de6 = lexp(v6 / vt_d)
-            i6, di6 = self.D_IS * (e6 - 1.0), self.D_IS * de6 / vt_d
+            if i_d6 is None:
+                e6, de6 = lexp(v6 / vt_d)
+                i6, di6 = self.D_IS * (e6 - 1.0), self.D_IS * de6 / vt_d
+            else:
+                i6, di6 = i_d6, 0.0
             iN = (ib, -ic, i6)
             fA = vA - (h[0] - Z[0, 0] * iN[0] - Z[0, 1] * iN[1] - Z[0, 2] * iN[2])
             f6 = v6 - (h[2] - Z[2, 0] * iN[0] - Z[2, 1] * iN[1] - Z[2, 2] * iN[2])
@@ -201,13 +218,24 @@ class _SnareFrontEnd:
         ex, _ = lexp(w / vt_t)
         ie = k_e * (ex - 1.0)
         ib = k_b * ie
-        e6, _ = lexp(v6 / vt_d)
-        self.i_ports = np.array([ib, -(ie - ib), self.D_IS * (e6 - 1.0)])
+        if i_d6 is None:
+            e6, _ = lexp(v6 / vt_d)
+            i6 = self.D_IS * (e6 - 1.0)
+        else:
+            i6 = i_d6
+        self.i_ports = np.array([ib, -(ie - ib), i6])
         self.v_nodes = Kb @ b - Ki @ self.i_ports
         for (leaf, _, _), vk, bk in zip(self.leaves, self.AL.T @ self.v_nodes, b):
             leaf.accept_incident_wave(2.0 * vk - bk)
         self.V_b5 = self.v_nodes[1]
         self.V_c27 = self.c27.wave_to_voltage()
+        # HB line (C13): Thevenin of node v1 (M253 pin 5, C22) seen by D6 with
+        # the TR5 currents of this sample: v1 = v1_oc - r_th1 * i_D6. No leaf
+        # joins v1 and h, so r_th1 is the diagonal entry of the junction
+        # inverse for v1 (Ki[0, 2] = Ginv[v1, v1]).
+        self.r_th1 = Ki[0, 2]
+        self.v1_oc = self.v_nodes[0] + self.r_th1 * self.i_ports[2]
+        self.V_h = self.v_nodes[4]
         return self.V_c27
 
 
@@ -279,6 +307,12 @@ class NoiseVoices:
     def _V_b5(self):
         return self.sd.V_b5
 
+    def hb_line(self):
+        """(v1_oc, r_th1) of the snare front end for the HB voice (C13):
+        M253 pin 5 / C22 node seen by D6, from the last tick. (sd.V_h is the
+        HB line only when tick() runs without hb_i_d6.)"""
+        return self.sd.v1_oc, self.sd.r_th1
+
     def set_vr9(self, pos):
         """VR9 wiper position 0..1 (VR9U = pos*VR9, VR9L = (1-pos)*VR9)."""
         self.vr9_pos = float(pos)
@@ -286,7 +320,10 @@ class NoiseVoices:
         self._vr9l.set_resistance(max((1.0 - self.vr9_pos) * self.VR9, 1.0))
 
     # ------------------------------------------------------------------
-    def tick(self, v_sd, v_lc, v_sc, v_mr, noise=None):
+    def tick(self, v_sd, v_lc, v_sc, v_mr, noise=None, hb_i_d6=None):
+        """One sample. hb_i_d6: D6 current of the HB voice (TwinTDrum with
+        d6=True, its i_d6 of the previous sample, C13); None: the HB line is
+        R21 alone."""
         if noise is None:
             noise = np.random.standard_normal()
         on = {"lc": v_lc > 0.5, "sc": v_sc > 0.5, "mr": v_mr > 0.5}
@@ -299,7 +336,7 @@ class NoiseVoices:
         self._m253_mr.set_voltage(self.V_ON if on["mr"] else 0.0)
 
         # A: snare front end (TR3 base of the previous sample)
-        v_c27 = self.sd.step(v_sd > 0.5, self.V_ON, self._V_b3)
+        v_c27 = self.sd.step(v_sd > 0.5, self.V_ON, self._V_b3, hb_i_d6)
 
         # MR port of the bases root: C26 of the previous sample
         self._mr_port.set_voltage(self._V_c26)

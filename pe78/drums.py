@@ -22,10 +22,14 @@ Voices:
 Note on hb/sd trigger sharing:
   The snare output of the M253 (pin 5) also drives the Hi Bongo trigger line
   (pin 6) through D6: every SD hit triggers HB as well, an HB hit alone does
-  not trigger the snare. R21 (12 kOhm, HB line to GND) is the path through
-  which C22 of the snare discharges after the gate (see pe78/noise_voices.py). The
-  HB voice is driven with the full gate level; the D6 drop (HB line about
-  4.1 V) and the slow fall of the line after a snare gate are not modelled.
+  not trigger the snare. R21 (12 kOhm, HB line to GND) is the R14 of the HB
+  edge detector and the path through which C22 of the snare discharges after
+  the gate (see pe78/noise_voices.py). Since C13 the HB voice is built with
+  d6=True and gets, at every sample, the Thevenin of the snare's pin 5 / C22
+  node (NoiseVoices.hb_line(), same sample) behind D6 into its line: the D6
+  drop and the slow fall of the line after a snare gate are in the model.
+  The snare front end sees the HB line loaded by R21 only (one-way coupling,
+  error measured in tests/test_hb_line.py).
 
 Instrument parameter dictionaries:
   All VR4 values represent the potentiometer alone (not R10+VR4).
@@ -84,7 +88,7 @@ class TonalDrum(BaseWDFDrum):
     N_TONAL = 5         # tonal stages joined before C21 (bd, cd, hb, lb, cl)
 
     def __init__(self, fs, edge_r, edge_c, kick_r, kick_c, kick_vr4, kick_load,
-                 vm=None):
+                 vm=None, d6=False):
         """
         Parameters
         ----------
@@ -105,9 +109,13 @@ class TonalDrum(BaseWDFDrum):
         vm : float or None
             Chip parameter of the CD4011A gate: switching voltage [V],
             1.5 ... 3.5 (None: CD4011AGate.VM_DEFAULT = 2.5 V). See twint.py.
+        d6 : bool
+            Hi Bongo: its trigger line (pin 6) is also driven by the snare
+            output (pin 5) through D6; pass NoiseVoices.hb_line() to tick()
+            (C13). R21 of Fig. 6 is the R14 of this voice.
         """
         self.voice = TwinTDrum(fs, edge_r, edge_c, kick_r, kick_c, kick_vr4, kick_load,
-                               vm=CD4011AGate.VM_DEFAULT if vm is None else vm)
+                               vm=CD4011AGate.VM_DEFAULT if vm is None else vm, d6=d6)
 
         # C21 output coupling: bilinear HP (same form as snare.py C31)
         r_th  = float(kick_load) / self.N_TONAL
@@ -120,7 +128,7 @@ class TonalDrum(BaseWDFDrum):
         self._c21_x = self.voice.v_dc / self.N_TONAL     # DC operating point
         self._c21_y = 0.0
 
-    def tick(self, v_trigger, noise_sample=0.0):
+    def tick(self, v_trigger, noise_sample=0.0, line=None):
         """
         Parameters
         ----------
@@ -128,13 +136,15 @@ class TonalDrum(BaseWDFDrum):
             M253 output: 4.5 V = on (behind 350 Ohm), 0 V = off (10 MOhm).
         noise_sample : float
             Unused; present for interface uniformity.
+        line : (float, float) or None
+            With d6=True: NoiseVoices.hb_line() of the same sample.
 
         Returns
         -------
         float
             Voltage on the pre-amp input [V] (see class docstring).
         """
-        x = self.voice.process_sample(v_trigger) / self.N_TONAL  # V_th of the joined node
+        x = self.voice.process_sample(v_trigger, line) / self.N_TONAL   # V_th of the joined node
         y = (self._b_c21[0] * x + self._b_c21[1] * self._c21_x
              - self._a1_c21 * self._c21_y)
         self._c21_x = x

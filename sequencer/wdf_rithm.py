@@ -19,10 +19,11 @@ Instruments:
   cl     Claves             (TonalDrum) — Latin/Rock switch
 
 Notes on original PE 1978 wiring:
-  In the PE 1978 circuit, the HB (Hi Bongo) bus is connected to 
-  the SD (Snare Drum) output: every time the snare is triggered, 
-  the HB receives the same pulse. The 'sd' line in the pattern 
-  therefore activates BOTH instruments.
+  In the PE 1978 circuit, the HB (Hi Bongo) trigger line (M253 pin 6)
+  is driven by the SD (Snare Drum) output (pin 5) through D6: every time
+  the snare is triggered, the HB is triggered too (line about 3.9 V and a
+  slow fall after the gate, C13). The 'sd' line in the pattern therefore
+  activates BOTH instruments; an 'hb' step drives pin 6 only.
   
   OUT3 of the M253 drives Claves (Latin style) or Snare Drum 
   (Rock style) depending on the style of the selected rhythm.
@@ -105,8 +106,10 @@ def synthesize(rhythm_name, bpm=BPM_DEFAULT, num_bars=2,
     inst_models = {}
     
     if 'bd' in pattern: inst_models['bd'] = TonalDrum(fs, **BDO_PARAMS)
-    # The SD bus triggers Hi Bongo and Snare Drum simultaneously
-    if 'hb' in pattern or 'sd' in pattern: inst_models['hb'] = TonalDrum(fs, **HBONGO_PARAMS)
+    # The SD output (M253 pin 5) also drives the HB line through D6 (C13):
+    # HB is built with d6=True and fed by the snare front end, sample by sample
+    if 'hb' in pattern or 'sd' in pattern:
+        inst_models['hb'] = TonalDrum(fs, **HBONGO_PARAMS, d6=True)
     if 'lb' in pattern: inst_models['lb'] = TonalDrum(fs, **LBONGO_PARAMS)
     if 'cl' in pattern: inst_models['cl'] = TonalDrum(fs, **CLAVES_PARAMS)
     if 'cd' in pattern: inst_models['cd'] = TonalDrum(fs, **CONGA_PARAMS)
@@ -150,11 +153,6 @@ def synthesize(rhythm_name, bpm=BPM_DEFAULT, num_bars=2,
             v = trig_v if seq_bd[step_idx] == 1 else 0.0
             sample_mix += inst_models['bd'].tick(v) * GAIN['bd'] * G_TONAL
 
-        if 'hb' in inst_models:
-            # Sum of physical output from HB and SD nodes sharing the trigger
-            v = trig_v if seq_hb[step_idx] or seq_sd[step_idx] == 1 else 0.0
-            sample_mix += inst_models['hb'].tick(v) * GAIN['hb'] * G_TONAL
-
         if 'cl' in inst_models:
             v = trig_v if seq_cl[step_idx] == 1 else 0.0
             sample_mix += inst_models['cl'].tick(v) * GAIN['cl'] * G_TONAL
@@ -168,13 +166,24 @@ def synthesize(rhythm_name, bpm=BPM_DEFAULT, num_bars=2,
             v = trig_v if seq_cd[step_idx] == 1 else 0.0
             sample_mix += inst_models['cd'].tick(v) * GAIN['cd'] * G_TONAL
 
-        # Noise voices: snare, cymbals, maracas (one circuit, one output)
+        # Noise voices: snare, cymbals, maracas (one circuit, one output).
+        # Before HB: HB takes the snare's pin 5 node of this sample (C13); the
+        # snare takes the D6 current of HB of the previous sample.
+        line = None
         if has_noise:
             v_sd = trig_v if seq_sd[step_idx] == 1 else 0.0
             v_lc = trig_v if seq_lc[step_idx] == 1 else 0.0
             v_sc = trig_v if seq_sc[step_idx] == 1 else 0.0
             v_mr = trig_v if seq_mr[step_idx] == 1 else 0.0
-            sample_mix += noise_model.tick(v_sd, v_lc, v_sc, v_mr) * GAIN['noise'] * G_NOISE
+            i_d6 = inst_models['hb'].voice.i_d6 if 'hb' in inst_models else None
+            sample_mix += (noise_model.tick(v_sd, v_lc, v_sc, v_mr, hb_i_d6=i_d6)
+                           * GAIN['noise'] * G_NOISE)
+            line = noise_model.hb_line()
+
+        if 'hb' in inst_models:
+            # HB steps drive pin 6; SD steps reach the HB line through D6
+            v = trig_v if seq_hb[step_idx] == 1 else 0.0
+            sample_mix += inst_models['hb'].tick(v, line=line) * GAIN['hb'] * G_TONAL
 
         # Write to master bus
         master[i] = sample_mix

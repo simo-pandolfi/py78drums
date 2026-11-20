@@ -89,7 +89,7 @@ def test_output_stage():
         k = np.arange(n_tot)
         x = np.cos(2 * np.pi * f * k / FS)
         it = iter(x)
-        d.voice.process_sample = lambda v: next(it)          # drive V_n3 directly
+        d.voice.process_sample = lambda v, line=None: next(it)   # drive V_n3 directly
         y = np.array([d.tick(0.0) for _ in k])
         w = np.exp(-2j * np.pi * f * k / FS)
         win = slice(n_tot - 2 * n_per, n_tot)

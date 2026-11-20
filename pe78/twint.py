@@ -215,9 +215,12 @@ class TwinTDrum:
     vm : float, optional
         Chip parameter: switching voltage of the gate [V], 1.5 ... 3.5
         (default 2.5).
+    d6 : bool, optional
+        Hi Bongo only: add D6 from the snare output to the trigger line
+        (node t1), driven through process_sample(..., line) (C13).
 
     Observable after process_sample(): v_in, v_out (V_n2, V_n3), v_n1,
-    i_d2 (current of D2) .
+    i_d2 (current of D2), i_d6 (with d6=True).
     """
 
     # Fixed feedback resistor R10, in series with VR4 (AC feedback; see module docstring)
@@ -229,8 +232,11 @@ class TwinTDrum:
     D_N    = 1.752        # [-]  emission coefficient
     VT_27C = 25.852e-3    # [V]  kT/q at 27 C (LTspice)
 
+    # HB line driven by the snare (d6=True): idle Thevenin of the pin 5 node
+    R_LINE_IDLE = 22e3    # [Ohm] about R48 + C22 with the M253 output off
+
     def __init__(self, fs, edge_r, edge_c, r_params, c_params, vr4, r_load,
-                 vm=CD4011AGate.VM_DEFAULT):
+                 vm=CD4011AGate.VM_DEFAULT, d6=False):
         r14, r15, r13 = (float(x) for x in edge_r[:3])
         r11 = float(r_params[0])
         r12 = float(r_params[1])
@@ -262,16 +268,25 @@ class TwinTDrum:
         self.components = [self.r11, self.r12, self.c5, self.c6, self.c7,
                            self.r16, self.r_bias, self.r_out]
         self.detector = [self.m253, self.r14, self.c8, self.r15, self.r13]
-        n0, n1, n2, n3, t1, t2, a, gnd = 0, 1, 2, 3, 4, 5, 6, -1
+        n0, n1, n2, n3, t1, t2, a, s, gnd = 0, 1, 2, 3, 4, 5, 6, 7, -1
         nodes = [(n2, n0), (n0, n3), (n0, gnd), (n2, n1), (n1, n3),
                  (n1, gnd), (n2, n3), (n3, gnd),
                  (t1, gnd), (t1, gnd), (t1, t2), (t2, gnd), (t2, a)]
         leaves = self.components + self.detector
+        d_law = diode_law(self.D_IS, self.D_N * self.VT_27C)
+        ports = [(a, n1, d_law), (n2, gnd, None), (n3, gnd, None)]
+        self.d6 = bool(d6)
+        if self.d6:
+            # Hi Bongo: the snare output (M253 pin 5) drives this line through
+            # D6 (C13). Leaf v1src = Thevenin of the pin 5 / C22 node of the
+            # snare front end (NoiseVoices.hb_line(), same sample), port D6.
+            self.v1src = wdf.ResistiveVoltageSource(self.R_LINE_IDLE)
+            leaves = leaves + [self.v1src]
+            nodes = nodes + [(s, gnd)]
+            ports = ports + [(s, t1, d_law)]
         self.root = RTypeNLRoot(
-            7, [(c, p, q) for c, (p, q) in zip(leaves, nodes)],
-            ports=[(a, n1, diode_law(self.D_IS, self.D_N * self.VT_27C)),
-                   (n2, gnd, None), (n3, gnd, None)],
-            multiport=[([1, 2], self.gate.law)], tol=1e-12)
+            8 if self.d6 else 7, [(c, p, q) for c, (p, q) in zip(leaves, nodes)],
+            ports=ports, multiport=[([1, 2], self.gate.law)], tol=1e-12)
         self.reset()
 
     # -----------------------------------------------------------------------
@@ -302,7 +317,11 @@ class TwinTDrum:
         for c, vc in ((self.c5, v), (self.c6, v), (self.c7, -v), (self.c8, 0.0)):
             c.z = vc
             c.a = c.b = vc
-        self.root.v_ports = np.array([0.0, v, v])
+        self.root.v_ports = np.array([0.0, v, v] + ([0.0] if self.d6 else []))
+        if self.d6:
+            self.v1src.set_resistance(self.R_LINE_IDLE)
+            self.v1src.set_voltage(0.0)
+        self.i_d6 = 0.0
         self.r_out.a = self.r_out.b = v
         self.v_in = self.v_out = v
         self.v_n1 = 0.0
@@ -311,7 +330,7 @@ class TwinTDrum:
     # -----------------------------------------------------------------------
     # Public interface
     # -----------------------------------------------------------------------
-    def process_sample(self, v_trigger: float) -> float:
+    def process_sample(self, v_trigger: float, line=None) -> float:
         """
         Compute one audio sample.
 
@@ -320,6 +339,10 @@ class TwinTDrum:
         v_trigger : float
             M253 output: above 0.5 V the output is on (v_trigger behind
             350 Ohm), otherwise off (0 V behind 10 MOhm).
+        line : (float, float) or None
+            Only with d6=True: (v1_oc, r_th1) of the snare front end, i.e.
+            NoiseVoices.hb_line() after its tick of the same sample. None:
+            snare idle (0 V behind R_LINE_IDLE).
 
         Returns
         -------
@@ -333,8 +356,14 @@ class TwinTDrum:
             self.m253.set_resistance(self.R_ON if on else self.R_OFF)
             self._on = on
         self.m253.set_voltage(v_trigger if on else 0.0)
+        if self.d6:
+            v_oc, r_th = (0.0, self.R_LINE_IDLE) if line is None else line
+            self.v1src.set_resistance(r_th)
+            self.v1src.set_voltage(v_oc)
         self.root.compute()
-        self.v_in, self.v_out = self.root.v_ports[1:]
+        self.v_in, self.v_out = self.root.v_ports[1:3]
         self.v_n1 = self.root.v_nodes[1]
         self.i_d2 = self.root.i_ports[0]
+        if self.d6:
+            self.i_d6 = self.root.i_ports[3]
         return self.v_out
