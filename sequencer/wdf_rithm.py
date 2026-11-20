@@ -46,10 +46,10 @@ from pe78.drums import (TonalDrum, NoiseVoices, bus_load_gains,
 # ---------------------------------------------------------------------------
 # Session Parameters
 # ---------------------------------------------------------------------------
-FS           = 48000
+FS           = 96000     # reference renders at 96 kHz (P4, S2: tools/rate_compare.py)
 BPM_DEFAULT  = 100
 STEPS        = 32
-HIT_SAMPLES  = 960       # Trigger pulse duration ≈ 20 ms @ 48 kHz
+HIT_S        = 0.020     # Trigger pulse duration [s] (was 960 samples at 48 kHz)
 
 # Instrument gain on master bus (relative balancing).
 # Tonal voices: 0.3046 = (R13/3.9M) / (1/5 * 10k/(78k + 10k)) keeps the mix
@@ -98,6 +98,7 @@ def synthesize(rhythm_name, bpm=BPM_DEFAULT, num_bars=2,
     # (or any other length) without needing -1 padding.
     pattern_steps = pattern.get('steps', STEPS)
     total_samples = step_samples * pattern_steps * num_bars
+    hit_samples   = int(round(HIT_S * fs))
     master        = np.zeros(total_samples)
 
 
@@ -142,8 +143,8 @@ def synthesize(rhythm_name, bpm=BPM_DEFAULT, num_bars=2,
         step_idx = (i // step_samples) % pattern_steps
         pos_in_step = i % step_samples
         
-        # Trigger pulse generation (4.5V during the first HIT_SAMPLES)
-        in_trig = pos_in_step < HIT_SAMPLES
+        # Trigger pulse generation (4.5V during the first hit_samples)
+        in_trig = pos_in_step < hit_samples
         trig_v = 4.5 if in_trig else 0.0
 
         sample_mix = 0.0
