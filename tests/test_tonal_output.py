@@ -2,18 +2,22 @@
 #Copyright (c) 2026 Simone Pandolfi
 #SPDX-License-Identifier: MIT OR Apache-2.0
 """
-Regression test for C4 + C4b: twin-T scattering matrix, R41, tonal output.
+Regression test for C4 + C4b: twin-T junction, R41, tonal output.
 
 C4b: TwinTDrum._scattering_logic used S = 2 diag(G) A^T M^-1 A - I. For
 voltage waves (b = S a) the R-type matrix is S = 2 A^T M^-1 A diag(G) - I.
 The old matrix is R^-1 S R: same poles, but the port-8 reading was
 V_n3 * R13/R41 instead of V_n3, and port voltages violated KVL.
+Since C12 the junction is built by RTypeNLRoot from the MNA of the leaves
+(pe78/wdf_nlroot.py), with the CD4011A gate at the root.
 C4: R41 = 390 kOhm (Fig. 7) instead of 3.9 MOhm in all tonal voices.
 Output: R41 of the N_TONAL voices joined before C21 into RLOAD (VR10).
 
-1. S of every tonal voice: port voltages and currents from b = S a satisfy
-   KVL (v = A^T v_n) and KCL (A i = inverter current at n3).
-2. R41 = 390 kOhm in all parameter dictionaries and in port 8.
+1. Junction of every tonal voice during a hit (VR4 = 0, 150, 470 kOhm):
+   KCL at the four nodes, port voltages = node differences (KVL) and gate
+   law, from the leaf waves (RTypeNLRoot.residuals()). The leaf order and
+   the node pairs are the ones of the docstring of twint.py.
+2. R41 = 390 kOhm in all parameter dictionaries and in leaf 8.
 3. TonalDrum output stage against the analytic transfer of V_n3 to RLOAD
    (bilinear warping included).
 
@@ -40,51 +44,28 @@ from pe78 import drums   # noqa: E402
 FS = 48000
 R41 = 390e3
 VOICES = ("BDO_PARAMS", "CONGA_PARAMS", "HBONGO_PARAMS", "LBONGO_PARAMS", "CLAVES_PARAMS")
-A = np.array([
-    [-1,  1,  1,  0,  0,  0,  0,  0,  0],   # n0 NB_R
-    [ 0,  0,  0, -1,  1,  1,  1,  0,  0],   # n1 NC_C
-    [ 1,  0,  0,  1,  0,  0,  0,  1,  0],   # n2 NAND_IN
-    [ 0, -1,  0,  0, -1,  0,  0, -1,  1],   # n3 NAND_OUT
-], dtype=float)
-
-
-class _Adapter:
-    def __init__(self, voice):
-        self.voice = voice
-        self.S = None
-
-    def get_port_impedances(self):
-        return [c.Rp for c in self.voice.components]
-
-    def set_S_matrix(self, S):
-        self.S = np.array(S, dtype=float)
+NODES = [(2, 0), (0, 3), (0, -1), (2, 1), (1, 3), (1, -1), (1, -1), (2, 3), (3, -1)]
 
 
 def _drum(name, **over):
     return drums.TonalDrum(FS, **dict(getattr(drums, name), **over))
 
 
-def test_scattering_kvl_kcl():
-    rng = np.random.default_rng(0)
+def test_junction_kcl_kvl():
     for name in VOICES:
         for vr4 in (0.0, 150e3, 470e3):
-            v = _drum(name, kick_vr4=vr4).voice
-            ad = _Adapter(v)
-            v._scattering_logic(ad)
-            R = np.array(ad.get_port_impedances())
-            for _ in range(3):
-                a = rng.standard_normal(9)
-                b = ad.S @ a
-                vp = (a + b) / 2.0                 # port voltages
-                ip = (b - a) / (2.0 * R)           # currents from the nodes into the ports
-                vn = np.linalg.lstsq(A.T, vp, rcond=None)[0]
-                scale = np.abs(vp).max()
-                kvl = np.abs(A.T @ vn - vp).max() / scale
-                i_inv = (v.a_gain * vn[2] - vn[3]) / v.r_o    # inverter current into n3
-                kcl = np.abs(A @ ip - np.array([0.0, 0.0, 0.0, i_inv])).max()
-                kcl /= np.abs(ip).max()
-                assert kvl < 1e-9, f"{name} VR4={vr4:g}: KVL residual {kvl:.3g}"
-                assert kcl < 1e-9, f"{name} VR4={vr4:g}: KCL residual {kcl:.3g}"
+            d = _drum(name, kick_vr4=vr4)
+            root = d.voice.root
+            leaves = [(leaf, p, q) for leaf, p, q in root.leaves]
+            assert [(p, q) for _, p, q in leaves] == NODES, name
+            assert [leaf for leaf, _, _ in leaves] == d.voice.components, name
+            worst = np.zeros(3)
+            for k in range(FS // 10):
+                d.tick(4.5 if k < 480 else 0.0)
+                worst = np.maximum(worst, root.residuals())
+            assert worst[0] < 1e-12, f"{name} VR4={vr4:g}: KCL residual {worst[0]:.3g} A"
+            assert worst[1] < 1e-9, f"{name} VR4={vr4:g}: KVL residual {worst[1]:.3g} V"
+            assert worst[2] < 1e-12, f"{name} VR4={vr4:g}: gate law residual {worst[2]:.3g} A"
 
 
 def test_r41():
@@ -120,7 +101,7 @@ def test_output_stage():
 
 
 if __name__ == "__main__":
-    test_scattering_kvl_kcl()
+    test_junction_kcl_kvl()
     test_r41()
     test_output_stage()
     print("ok")

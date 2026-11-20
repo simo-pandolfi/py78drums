@@ -35,7 +35,7 @@ Instrument parameter dictionaries:
 
 import numpy as np
 
-from pe78.twint import EdgeDetector, TwinTDrum
+from pe78.twint import CD4011AGate, EdgeDetector, TwinTDrum
 
 NOISE_STD = 1.0     # [-]  unit-variance noise; the level (B1) is set in pe78/noise.py
 from pe78.noise_voices import NoiseVoices  # noqa: E402,F401  (re-export)
@@ -72,15 +72,19 @@ class TonalDrum(BaseWDFDrum):
     (V_n3 / N_TONAL, R41 / N_TONAL):
         V_out = V_n3/N * RLOAD/(R41/N + RLOAD) * s*tau/(1 + s*tau)
         tau   = C21 * (R41/N + RLOAD)
-    Linear, so voices played together add. The load of the noise section on
-    the bus (R55/C31) is applied outside, with bus_load_gains() (C16).
+    The output network is linear, so voices played together add. The load of
+    the noise section on the bus (R55/C31) is applied outside, with
+    bus_load_gains() (C16). V_n3 is absolute since C12 (DC level V_dc, about
+    2.5 V); C21 blocks it and its state starts at V_dc / N_TONAL, so the
+    output starts at 0 V without a transient.
     """
 
     C21     = 0.22e-6   # [F]   coupling capacitor, shared by the tonal voices
     RLOAD   = 10e3      # [Ohm] pre-amp input (VR10), as Rload in snare.py
     N_TONAL = 5         # tonal stages joined before C21 (bd, cd, hb, lb, cl)
 
-    def __init__(self, fs, edge_r, edge_c, kick_r, kick_c, kick_vr4, kick_load):
+    def __init__(self, fs, edge_r, edge_c, kick_r, kick_c, kick_vr4, kick_load,
+                 vm=None):
         """
         Parameters
         ----------
@@ -98,9 +102,13 @@ class TonalDrum(BaseWDFDrum):
             VR4 potentiometer value in Ohm (TwinTDrum adds R10 internally).
         kick_load : float
             R41 output isolation resistor in Ohm.
+        vm : float or None
+            Chip parameter of the CD4011A gate: switching voltage [V],
+            1.5 ... 3.5 (None: CD4011AGate.VM_DEFAULT = 2.5 V). See twint.py.
         """
         self.detector = EdgeDetector(fs, edge_r, edge_c)
-        self.voice    = TwinTDrum(fs, kick_r, kick_c, kick_vr4, kick_load)
+        self.voice    = TwinTDrum(fs, kick_r, kick_c, kick_vr4, kick_load,
+                                  vm=CD4011AGate.VM_DEFAULT if vm is None else vm)
 
         # C21 output coupling: bilinear HP (same form as snare.py C31)
         r_th  = float(kick_load) / self.N_TONAL
@@ -110,7 +118,7 @@ class TonalDrum(BaseWDFDrum):
         a0    = 1.0 + k * tau_p
         self._b_c21 = (k * tau_z / a0, -k * tau_z / a0)
         self._a1_c21 = (1.0 - k * tau_p) / a0
-        self._c21_x = 0.0
+        self._c21_x = self.voice.v_dc / self.N_TONAL     # DC operating point
         self._c21_y = 0.0
 
     def tick(self, v_trigger, noise_sample=0.0):
@@ -143,8 +151,8 @@ class TonalDrum(BaseWDFDrum):
         ----------
         vr4 : float
             VR4 value in Ohm (0 ... ~470 kOhm). Larger VR4 -> longer decay,
-            up to self-oscillation (bass drum: about 189 kOhm); above it the
-            linear model grows without limit (see twint.py).
+            up to self-oscillation (bass drum: above about 189.5 kOhm), limited
+            by the CD4011A gate (see twint.py).
         """
         self.voice.set_vr4(vr4)
 

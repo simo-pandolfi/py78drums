@@ -31,8 +31,10 @@ capacitor is an instantaneous port resistance, not a delay) are grouped at
 the single root of the structure as one multiport nonlinearity; the linear
 part is an R-type adaptor derived from the MNA of the circuit; the root is
 solved iteratively. Here the ports are voltage-controlled (unknowns: the port
-voltages) and the laws are one-port, so the Newton Jacobian is
-J = I + Z*diag(f'(v_N)); the coupling between the ports is in Z.
+voltages) and the Newton Jacobian is J = I + Z*G_N, G_N = d i_N / d v_N.
+With one-port laws G_N is diagonal and the coupling between the ports is in
+Z; a multiport law (e.g. a gate whose output current depends on its input and
+output voltages, C12) adds off-diagonal blocks.
   - K. J. Werner, V. Nangia, J. O. Smith III, J. S. Abel, "Resolving Wave
     Digital Filters with Multiple/Multiport Nonlinearities", DAFx-15.
   - M. J. Olsen, K. J. Werner, J. O. Smith III, "Resolving Grouped
@@ -42,8 +44,9 @@ J = I + Z*diag(f'(v_N)); the coupling between the ports is in Z.
     Variable Choice in Wave Digital Filters with Grouped Nonlinearities",
     DAFx-17 (other root variables, e.g. the V_BE unknown of snare.py).
 
-Used by cymb.py (maracas branch: D8, D9; C8). The snare front end
-(snare.py, C6) uses the same method with a current-controlled composite port
+Used by noise_voices.py (maracas branch: D8, D9; bases root) and twint.py
+(CD4011A gate of the twin-T, C12). The snare front end
+(noise_voices.py, from C6) uses the same method with a current-controlled composite port
 (TR5 + D7) and keeps its own solver.
 """
 
@@ -87,7 +90,13 @@ class RTypeNLRoot:
     leaves : list of (leaf, p, n)
         pywdf one-port leaves and the nodes they connect.
     ports : list of (p, n, law)
-        Nonlinear ports; law(v) -> (i, di/dv), v = v_p - v_n.
+        Nonlinear ports; law(v) -> (i, di/dv), v = v_p - v_n. law is None for
+        a port that belongs to a multiport law.
+    multiport : list of (indices, law), optional
+        Laws that couple several ports: law(v[indices]) -> (i[indices],
+        J), J[r, c] = d i[indices[r]] / d v[indices[c]]. A port with zero
+        current (i = 0, a voltage probe) can be used as a controlling
+        voltage, e.g. the input of a gate.
     step : float
         Largest Newton step on a port voltage [V].
     tol : float
@@ -101,9 +110,15 @@ class RTypeNLRoot:
     iter_max : largest number of Newton iterations so far
     """
 
-    def __init__(self, n_nodes, leaves, ports, step=0.2, tol=1e-10, maxit=200):
+    def __init__(self, n_nodes, leaves, ports, step=0.2, tol=1e-10, maxit=200,
+                 multiport=()):
         self.leaves = list(leaves)
         self.laws = [law for _, _, law in ports]
+        self.multiport = [(np.asarray(idx, dtype=int), law) for idx, law in multiport]
+        covered = [k for idx, _ in self.multiport for k in idx]
+        for k, law in enumerate(self.laws):
+            if (law is None) != (k in covered) or covered.count(k) > 1:
+                raise ValueError(f"port {k}: give either a one-port law or one multiport law")
         self.step, self.tol, self.maxit = step, tol, maxit
 
         def inc(p, q):
@@ -137,10 +152,15 @@ class RTypeNLRoot:
         return m
 
     def _eval(self, v):
-        i = np.empty(len(v))
-        g = np.empty(len(v))
+        """Port currents and Jacobian d i / d v of the laws (n x n)."""
+        n = len(v)
+        i = np.empty(n)
+        g = np.zeros((n, n))
         for k, law in enumerate(self.laws):
-            i[k], g[k] = law(v[k])
+            if law is not None:
+                i[k], g[k, k] = law(v[k])
+        for idx, law in self.multiport:
+            i[idx], g[np.ix_(idx, idx)] = law(v[idx])
         return i, g
 
     def compute(self):
@@ -152,7 +172,7 @@ class RTypeNLRoot:
         for it in range(1, self.maxit + 1):
             i, g = self._eval(v)
             F = v - h + Z @ i
-            J = eye + Z * g[np.newaxis, :]
+            J = eye + Z @ g
             dv = np.clip(np.linalg.solve(J, -F), -self.step, self.step)
             v = v + dv
             if np.max(np.abs(dv)) < self.tol:

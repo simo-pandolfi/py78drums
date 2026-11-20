@@ -12,10 +12,12 @@ Voices: Bass Drum (IC4a), Hi Bongo (IC4b), Low Bongo (IC4c),
 
 Structure:
   EdgeDetector: converts a digital gate into a positive trigger spike.
-  TwinTDrum:    damped Twin-T oscillator with a CD4011 NAND gate used as
-                a linear inverter; VR4 sets the decay (see below).
+  TwinTDrum:    damped Twin-T oscillator around a CD4011A NAND gate used as
+                an inverter (inputs tied), nonlinear (C12); VR4 sets the
+                decay (see below).
+  CD4011AGate:  square-law model of the gate (both stacks), see below.
 
-Physical topology — 4 nodes, 9 WDF ports:
+Physical topology — 4 nodes, 9 linear WDF leaves, 2 nonlinear ports:
   n0 = NB_R    : midpoint of R11-R12 (C5 shunt to GND)
   n1 = NC_C    : midpoint of C6-C7  (R16 shunt to GND, trigger injection)
   n2 = NAND_IN : CD4011 pins 1+2
@@ -23,44 +25,65 @@ Physical topology — 4 nodes, 9 WDF ports:
 
   First T  (resistive branch): [NAND_IN]──[R11]──┬──[R12]──[NAND_OUT]
                                                  └──[C5]──[GND]
-                                                
+
   Second T (capacitive branch):[NAND_IN]──[C6]──┬──[C7]──[NAND_OUT]
                                                 └──[R16]──[GND]
                                                 └──[trigger spike]
 
   Bias+Decay: [NAND_IN]──[R10 + VR4]──[NAND_OUT]
-  
+
   Output:     [NAND_OUT]──[R41]──[instrument bus]
 
-WDF port order (indices in components list and scattering matrix A):
-  0:r11  1:r12  2:c5  3:c6  4:c7  5:r16  6:vtrig  7:r_bias  8:r_out
+Leaf order (components list): 0:r11 1:r12 2:c5 3:c6 4:c7 5:r16 6:vtrig
+7:r_bias 8:r_out. The leaves are joined by an R-type junction derived from
+the MNA of the network (pe78/wdf_nlroot.py, RTypeNLRoot); the gate is a
+multiport nonlinearity at the root: port n2-GND (input, no current) and port
+n3-GND (output current, function of V_n2 and V_n3), solved by Newton per
+sample (decision D3-A of the plan).
 
-Inverter model (small-signal):
-  V_n3 = a_gain * V_n2,  output impedance r_o
-  Typical CD4011 at Vdd=5V: a_gain in [-30, -50], r_o in [500, 2000] Ohm
+Gate model (CD4011AGate, decisions D1-A, D2-B of C12 and plan D1-A..D4-A):
+  NAND with inputs tied: two NMOS in series pull n3 down, two PMOS in
+  parallel pull it up. Each stack is one square-law (Shichman-Hodges)
+  device with the same K: I = K/2 Vov^2 (1 + lam Vds) in saturation,
+  K (Vov Vds - Vds^2/2)(1 + lam Vds) in triode, 0 below threshold.
+  VDD = 5 V. Thresholds 1.5 V for N and P (RCA File No. 479, Fig. 7.7:
+  supply current from Vi = 1.5 V to VDD - 1.5 V). K from the current at the
+  switching point, about 0.5 mA at VDD = 5 V (Fig. 7.7): K = 0.93 mA/V^2;
+  gm = 2.0 mS at the operating point. lam = 0.0292 1/V is tuned so that the
+  bass drum self-oscillates above VR4 = 189.5 kOhm, as the former linear
+  model (a = -40, r_o = 1 kOhm, decision D4-A): A0 = 73.4, r_out = 36.7 kOhm.
+  At full drive (VGS = 5 V) the square law gives about 6 mA, against
+  1.1/1.2 mA of the typical curves of Fig. 7.8/7.9: one square law cannot
+  follow both figures; the operating point (Fig. 7.7) is preferred.
+  Chip parameter vm (switching voltage, 1.5 ... 3.5 V, i.e. 30-70 % of VDD
+  as in Fig. 7.4; default 2.5 V): the N and P thresholds move in opposite
+  directions (VT0 +- d). The overdrive at the operating point stays 1 V, so
+  gm, A0 and the VR4 threshold do not change with vm (189.5-189.6 kOhm);
+  vm sets the DC level and the headroom towards the two rails, i.e. the
+  asymmetry of the clipping.
 
-Scattering matrix correction for the inverter (row n3 of M):
-  M[3,3] += 1/r_o
-  M[3,2] -= a_gain/r_o   (a_gain < 0 -> increases M[3,2])
+DC operating point: C5, C6, C7 block DC and the gate input draws no current,
+so V_n2 = V_n3 = V_dc with I_gate(V_dc, V_dc) = V_dc/R41 (R41 to GND in the
+model): V_dc = vm - 3 mV. The capacitors start charged at the DC point
+(no power-on transient); TonalDrum starts its C21 high-pass at V_dc.
 
-VR4 semantics (linear small-signal model):
+VR4 semantics:
   r_bias = R10 + VR4  (total value in Ohm, not VR4 alone); R10 = 150 kOhm,
   VR4 = 0 ... ~470 kOhm, default 150 kOhm -> r_bias = 300 kOhm.
-  C5, C6, C7 block DC and the gate input draws no current: the DC operating
-  point is the gate's own switching voltage, independent of VR4. The model
-  works on AC only and has no DC operating point.
-  VR4 sets the AC feedback, i.e. the distance from self-oscillation: larger
-  VR4 -> longer decay and slightly lower pitch. Bass drum with a_gain = -40:
-  VR4 = 0 -> 110 Hz, tau 9 ms; 150 kOhm -> 90 Hz, 83 ms; self-oscillation
-  above about 189 kOhm (the threshold moves with a_gain, i.e. with the chip).
-  The model is linear: above the threshold the output grows without limit,
-  while the real gate settles on an oscillation limited by the 0-5 V rails
-  and by its own compression (point C12 of the correction plan).
+  The DC operating point does not depend on VR4. VR4 sets the AC feedback,
+  i.e. the distance from self-oscillation: larger VR4 -> longer decay and
+  slightly lower pitch. Bass drum, small signal: VR4 = 0 -> 105.6 Hz,
+  tau 9.1 ms; 150 kOhm -> 86.9 Hz, 83 ms; self-oscillation above 189.5 kOhm
+  (former linear model: 110 Hz, 90 Hz, same tau and threshold). Above the
+  threshold the oscillation is limited by the rails and by the compression
+  of the gate.
 """
 
 import numpy as np
 import pywdf.core.wdf as wdf
-import pywdf.core.rtype as rtype
+from scipy.optimize import brentq
+
+from pe78.wdf_nlroot import RTypeNLRoot
 
 
 # =============================================================================
@@ -141,12 +164,90 @@ class EdgeDetector:
 
 
 # =============================================================================
+#  CD4011AGate
+# =============================================================================
+def _mos(k, lam, vov, vds):
+    """
+    Square-law MOS (Shichman-Hodges) with channel-length modulation.
+
+    vov = V_GS - V_T, vds = V_DS (negative: drain and source swapped).
+    Returns (i, di/dvov, di/dvds), i from drain to source.
+    """
+    if vds < 0.0:
+        i, du, dw = _mos(k, lam, vov - vds, -vds)
+        return -i, -du, du + dw
+    if vov <= 0.0:
+        return 0.0, 0.0, 0.0
+    m = 1.0 + lam * vds
+    if vds >= vov:                                   # saturation
+        q = 0.5 * k * vov * vov
+        return q * m, k * vov * m, q * lam
+    q = k * (vov * vds - 0.5 * vds * vds)            # triode
+    return q * m, k * vds * m, k * (vov - vds) * m + q * lam
+
+
+class CD4011AGate:
+    """
+    CD4011A NAND with the inputs tied, as an inverter (see module docstring).
+
+    Parameters
+    ----------
+    vm : float, optional
+        Switching voltage V_in = V_out of the unloaded gate [V], 1.5 ... 3.5
+        (chip parameter, default 2.5).
+    """
+
+    VDD   = 5.0         # [V]   supply
+    VT0   = 1.5         # [V]   N and P threshold at vm = 2.5 V (Fig. 7.7)
+    I_M   = 0.5e-3      # [A]   stack current at the switching point (Fig. 7.7)
+    LAM   = 0.0292235   # [1/V] channel-length modulation, tuned (D4-A)
+    VM_DEFAULT = 2.5    # [V]
+    K = 2.0 * I_M / ((VDD / 2 - VT0) ** 2 * (1.0 + LAM * VDD / 2))   # [A/V^2]
+
+    def __init__(self, vm=VM_DEFAULT):
+        self.set_vm(vm)
+
+    def set_vm(self, vm):
+        """Move the N and P thresholds in opposite directions so that the
+        unloaded switching voltage is vm."""
+        vm = float(vm)
+        if not 1.5 <= vm <= 3.5:
+            raise ValueError(f"vm = {vm} V outside 1.5 ... 3.5 V")
+
+        def f(d):
+            self.vtn, self.vtp = self.VT0 + d, self.VT0 - d
+            return self.current(vm, vm)[0]
+        brentq(f, -1.45, 1.45, xtol=1e-15)
+        self.vm = vm
+
+    def current(self, v_in, v_out):
+        """
+        Output current from n3 to GND (NMOS minus PMOS) and its derivatives.
+
+        Returns (i, di/dv_in, di/dv_out).
+        """
+        i_n, gn, on = _mos(self.K, self.LAM, v_in - self.vtn, v_out)
+        i_p, gp, op = _mos(self.K, self.LAM, self.VDD - v_in - self.vtp, self.VDD - v_out)
+        return i_n - i_p, gn + gp, on + op
+
+    def law(self, v):
+        """Multiport law for RTypeNLRoot: ports (n2-GND, n3-GND)."""
+        i, g_in, g_out = self.current(v[0], v[1])
+        return np.array([0.0, i]), np.array([[0.0, 0.0], [g_in, g_out]])
+
+    def dc_point(self, r_load):
+        """V_dc with V_in = V_out and the gate driving r_load to GND."""
+        return brentq(lambda v: self.current(v, v)[0] + v / r_load,
+                      0.0, self.VDD, xtol=1e-15)
+
+
+# =============================================================================
 #  TwinTDrum
 # =============================================================================
 class TwinTDrum:
     """
-    Damped Twin-T oscillator with CD4011 NAND gate as linear inverter.
-    (Practical Electronics 1978, Fig. 7 — Bass Drum and variants)
+    Damped Twin-T oscillator around a CD4011A gate (Practical Electronics
+    1978, Fig. 7 — Bass Drum and variants). See the module docstring.
 
     Parameters
     ----------
@@ -161,17 +262,18 @@ class TwinTDrum:
         Physical range: 0 ... ~470 kOhm.
     r_load : float
         R41 — output isolation resistor to instrument bus (390 kOhm typical).
-    r_o : float, optional
-        CD4011 output impedance in Ohm (default 1000).
-    a_gain : float, optional
-        CD4011 open-loop small-signal gain, must be negative (default -40).
+    vm : float, optional
+        Chip parameter: switching voltage of the gate [V], 1.5 ... 3.5
+        (default 2.5).
+
+    Observable after process_sample(): v_in, v_out (V_n2, V_n3) [V].
     """
 
     # Fixed feedback resistor R10, in series with VR4 (AC feedback; see module docstring)
     R10 = 150e3     # [Ohm]
 
     def __init__(self, fs, r_params, c_params, vr4, r_load,
-                 r_o=1000.0, a_gain=-40.0):
+                 vm=CD4011AGate.VM_DEFAULT):
         r11 = float(r_params[0])
         r12 = float(r_params[1])
         r16 = float(r_params[2])
@@ -179,9 +281,8 @@ class TwinTDrum:
         c6  = float(c_params[1])
         c7  = float(c_params[2])
 
-        self.r_o    = float(r_o)
-        self.a_gain = float(a_gain)
-        self._vr4   = float(vr4)
+        self._vr4 = float(vr4)
+        self.gate = CD4011AGate(vm)
 
         # WDF components
         self.r11          = wdf.Resistor(r11)
@@ -195,23 +296,27 @@ class TwinTDrum:
         self.r_out        = wdf.Resistor(float(r_load))                 # R41
 
         self.components = [
-            self.r11,           # port 0
-            self.r12,           # port 1
-            self.c5,            # port 2
-            self.c6,            # port 3
-            self.c7,            # port 4
-            self.r16,           # port 5
-            self.r_trigger_in,  # port 6
-            self.r_bias,        # port 7
-            self.r_out,         # port 8
+            self.r11,           # 0
+            self.r12,           # 1
+            self.c5,            # 2
+            self.c6,            # 3
+            self.c7,            # 4
+            self.r16,           # 5
+            self.r_trigger_in,  # 6
+            self.r_bias,        # 7
+            self.r_out,         # 8
         ]
-
-        self.drum_osc = rtype.RootRTypeAdaptor(
-            self.components, self._scattering_logic
-        )
+        n0, n1, n2, n3, gnd = 0, 1, 2, 3, -1
+        nodes = [(n2, n0), (n0, n3), (n0, gnd), (n2, n1), (n1, n3),
+                 (n1, gnd), (n1, gnd), (n2, n3), (n3, gnd)]
+        self.root = RTypeNLRoot(
+            4, [(c, p, q) for c, (p, q) in zip(self.components, nodes)],
+            ports=[(n2, gnd, None), (n3, gnd, None)],
+            multiport=[([0, 1], self.gate.law)], tol=1e-12)
+        self.reset()
 
     # -----------------------------------------------------------------------
-    # Public setter — control-rate parameter change
+    # Public setters — control rate
     # -----------------------------------------------------------------------
     def set_vr4(self, vr4: float):
         """
@@ -219,20 +324,23 @@ class TwinTDrum:
 
         The feedback resistance becomes R10 + VR4. VR4 sets the AC feedback,
         not the DC operating point: larger VR4 -> longer decay, up to
-        self-oscillation (bass drum, a_gain = -40: about 189 kOhm). Above the
-        threshold this linear model grows without limit (see module docstring).
+        self-oscillation (bass drum: above about 189.5 kOhm), where the
+        oscillation is limited by the gate (see module docstring).
         Physical range: 0 Ohm (VR4=0) ... ~470 kOhm.
-
-        The scattering matrix S is recomputed automatically via the pywdf
-        impedance propagation mechanism.
-
-        Parameters
-        ----------
-        vr4 : float
-            New VR4 value in Ohm.
         """
         self._vr4 = float(vr4)
         self.r_bias.set_resistance(self.R10 + self._vr4)
+
+    def reset(self):
+        """Put the circuit at its DC operating point (capacitors charged)."""
+        v = self.gate.dc_point(self.r_out.Rp)
+        self.v_dc = v
+        for c, vc in ((self.c5, v), (self.c6, v), (self.c7, -v)):
+            c.z = vc
+            c.a = c.b = vc
+        self.root.v_ports = np.array([v, v])
+        self.r_out.a = self.r_out.b = v
+        self.v_in = self.v_out = v
 
     # -----------------------------------------------------------------------
     # Public interface
@@ -250,62 +358,11 @@ class TwinTDrum:
         Returns
         -------
         float
-            Voltage at NAND_OUT (n3) = voltage across R41 (port 8, R41 to
-            ground: the bus voltage is negligible against V_n3).
-            Note: output starts with a negative half-cycle (inverting gate).
-            AC coupling downstream makes polarity perceptually irrelevant.
+            Voltage at NAND_OUT (n3) = voltage across R41 (R41 to ground: the
+            bus voltage is negligible against V_n3). Absolute voltage: at rest
+            it is V_dc (about 2.5 V); TonalDrum removes it with C21.
         """
         self.r_trigger_in.set_voltage(v_trigger)
-
-        for idx, comp in enumerate(self.components):
-            self.drum_osc.a_vals[idx] = comp.propagate_reflected_wave()
-
-        self.drum_osc.r_type_scatter()
-
-        for idx, comp in enumerate(self.components):
-            comp.accept_incident_wave(self.drum_osc.b_vals[idx])
-
-        return self.r_out.wave_to_voltage()
-
-    # -----------------------------------------------------------------------
-    # Internal: scattering matrix with inverter feedback
-    # -----------------------------------------------------------------------
-    def _scattering_logic(self, adapter):
-        """
-        WDF scattering matrix for the R-type adaptor.
-
-        S = 2 * A^T * M^-1 * A * diag(G) - I     (voltage waves, b = S a)
-        M = A * diag(G) * A^T  (passive KCL, corrected for inverter feedback)
-
-        Derivation: each port is a source a_j behind R_j (Norton G_j*a_j);
-        nodes: M v_n = A diag(G) a; port voltages v = A^T v_n; b = 2 v - a.
-
-        Matrix A (4 nodes x 9 ports):
-          rows : n0=NB_R, n1=NC_C, n2=NAND_IN, n3=NAND_OUT
-          cols : r11, r12, c5, c6, c7, r16, vtrig, r_bias, r_out
-          +1 = positive terminal at node, -1 = negative terminal at node.
-          Verification rule: shunt columns sum to +1, series columns sum to 0.
-
-        Inverter feedback correction (row n3 of M):
-          M[3,3] += 1/r_o         (current leaving n3 through inverter output)
-          M[3,2] -= a_gain/r_o    (amplified current from n2; a_gain < 0)
-        """
-        R_ports = np.array(adapter.get_port_impedances())
-        G       = 1.0 / R_ports
-
-        A = np.array([
-        #    r11   r12    c5    c6    c7   r16  vtrig rbias  rout
-            [ -1,   1,    1,    0,    0,    0,    0,    0,    0  ],  # n0 NB_R
-            [  0,   0,    0,   -1,    1,    1,    1,    0,    0  ],  # n1 NC_C
-            [  1,   0,    0,    1,    0,    0,    0,    1,    0  ],  # n2 NAND_IN
-            [  0,  -1,    0,    0,   -1,    0,    0,   -1,    1  ],  # n3 NAND_OUT
-        ], dtype=float)
-
-        M = A @ np.diag(G) @ A.T           # passive KCL 4x4
-
-        G_inv    = 1.0 / self.r_o
-        M[3, 3] += G_inv
-        M[3, 2] -= self.a_gain * G_inv     # a_gain < 0 -> increases M[3,2]
-
-        S = 2.0 * A.T @ np.linalg.inv(M) @ A @ np.diag(G) - np.eye(9)
-        adapter.set_S_matrix(S)
+        self.root.compute()
+        self.v_in, self.v_out = self.root.v_ports
+        return self.v_out
