@@ -2,4 +2,4 @@ numpy
 numba
 scipy
 soundfile
-git+https://github.com/gusanthon/pywdf
+pywdf @ git+https://github.com/simo-pandolfi/pywdf-ref.git@7cdf940564e70ab1ed2eb18c04985fb266721306

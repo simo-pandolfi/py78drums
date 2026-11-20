@@ -23,6 +23,7 @@ __pycache__/
 .venv/
 *.egg-info/
 DEVELOPMENT_LOG.md
+log.txt
 patterns_M252AA.py
 
 # Output generati
