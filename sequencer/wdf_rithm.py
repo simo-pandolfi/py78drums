@@ -38,7 +38,7 @@ from scipy.io import wavfile
 from patterns import PATTERNS
 
 # pe78_fast is not used until it is realigned with pe78/ (it reverts C1).
-from pe78.drums import (TonalDrum, NoiseVoices,
+from pe78.drums import (TonalDrum, NoiseVoices, bus_load_gains,
     BDO_PARAMS, CONGA_PARAMS, HBONGO_PARAMS, LBONGO_PARAMS, CLAVES_PARAMS)
 
 
@@ -71,6 +71,9 @@ GAIN = {
 # persistent NoiseVoices object (C15) fed with the four triggers of the current
 # step; its single output goes to the master bus with GAIN['noise'] (= the old
 # snare gain: the snare level is unchanged, the cymbal level is now set by VR9).
+# GAIN keeps the mix balance chosen by ear (C16, D2-B): with one gain for all
+# voices the noise voices would be 25.9 dB lower than here (physical bus).
+# bus_load_gains() applies the mutual load of the two sections on VR10.
 
 
 def synthesize(rhythm_name, bpm=BPM_DEFAULT, num_bars=2,
@@ -113,6 +116,10 @@ def synthesize(rhythm_name, bpm=BPM_DEFAULT, num_bars=2,
     if has_noise:
         noise_model = NoiseVoices(fs)
 
+    # Mutual load of the tonal and noise sections on the output bus (C16,
+    # D1-B): both branches are always connected in the circuit.
+    G_NOISE, G_TONAL = bus_load_gains(NoiseVoices.VR9_POS_DEFAULT)
+
     # --- 2. Sequence Extraction for convenience ---
     seq_bd = pattern.get('bd', [0]*STEPS)
     seq_cl = pattern.get('cl', [0]*STEPS)
@@ -141,25 +148,25 @@ def synthesize(rhythm_name, bpm=BPM_DEFAULT, num_bars=2,
         # Process discrete instruments
         if 'bd' in inst_models:
             v = trig_v if seq_bd[step_idx] == 1 else 0.0
-            sample_mix += inst_models['bd'].tick(v) * GAIN['bd']
+            sample_mix += inst_models['bd'].tick(v) * GAIN['bd'] * G_TONAL
 
         if 'hb' in inst_models:
             # Sum of physical output from HB and SD nodes sharing the trigger
             v = trig_v if seq_hb[step_idx] or seq_sd[step_idx] == 1 else 0.0
-            sample_mix += inst_models['hb'].tick(v) * GAIN['hb']
+            sample_mix += inst_models['hb'].tick(v) * GAIN['hb'] * G_TONAL
 
         if 'cl' in inst_models:
             v = trig_v if seq_cl[step_idx] == 1 else 0.0
-            sample_mix += inst_models['cl'].tick(v) * GAIN['cl']
+            sample_mix += inst_models['cl'].tick(v) * GAIN['cl'] * G_TONAL
 
 
         if 'lb' in inst_models:
             v = trig_v if seq_lb[step_idx] == 1 else 0.0
-            sample_mix += inst_models['lb'].tick(v) * GAIN['lb']
+            sample_mix += inst_models['lb'].tick(v) * GAIN['lb'] * G_TONAL
 
         if 'cd' in inst_models:
             v = trig_v if seq_cd[step_idx] == 1 else 0.0
-            sample_mix += inst_models['cd'].tick(v) * GAIN['cd']
+            sample_mix += inst_models['cd'].tick(v) * GAIN['cd'] * G_TONAL
 
         # Noise voices: snare, cymbals, maracas (one circuit, one output)
         if has_noise:
@@ -167,7 +174,7 @@ def synthesize(rhythm_name, bpm=BPM_DEFAULT, num_bars=2,
             v_lc = trig_v if seq_lc[step_idx] == 1 else 0.0
             v_sc = trig_v if seq_sc[step_idx] == 1 else 0.0
             v_mr = trig_v if seq_mr[step_idx] == 1 else 0.0
-            sample_mix += noise_model.tick(v_sd, v_lc, v_sc, v_mr) * GAIN['noise']
+            sample_mix += noise_model.tick(v_sd, v_lc, v_sc, v_mr) * GAIN['noise'] * G_NOISE
 
         # Write to master bus
         master[i] = sample_mix

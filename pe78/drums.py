@@ -41,6 +41,7 @@ NOISE_STD = 1.0     # [-]  unit-variance noise; the level (B1) is set in pe78/no
 from pe78.noise_voices import NoiseVoices  # noqa: E402,F401  (re-export)
 
 
+
 # ---------------------------------------------------------------------------
 #  Base class
 # ---------------------------------------------------------------------------
@@ -71,8 +72,8 @@ class TonalDrum(BaseWDFDrum):
     (V_n3 / N_TONAL, R41 / N_TONAL):
         V_out = V_n3/N * RLOAD/(R41/N + RLOAD) * s*tau/(1 + s*tau)
         tau   = C21 * (R41/N + RLOAD)
-    Linear, so voices played together add. The loading of the noise voices
-    on the bus (R55/C31) is not modelled.
+    Linear, so voices played together add. The load of the noise section on
+    the bus (R55/C31) is applied outside, with bus_load_gains() (C16).
     """
 
     C21     = 0.22e-6   # [F]   coupling capacitor, shared by the tonal voices
@@ -198,3 +199,43 @@ CLAVES_PARAMS = {
     'kick_vr4':  150000,
     'kick_load': 390000,
 }
+
+
+# ---------------------------------------------------------------------------
+#  Output bus (C16)
+# ---------------------------------------------------------------------------
+
+def bus_load_gains(vr9_pos=None):
+    """
+    Mutual load of the two sections on the output bus (C16, decision D1-B).
+
+    In the circuit the noise section (W -> R55 -> C31) and the tonal section
+    (five R41 joined -> C21) drive the same node O, the pre-amp input VR10
+    (RLOAD). TonalDrum and NoiseVoices each terminate on RLOAD alone; these
+    mid-band gains (C21, C31 short, collector impedance neglected) give the
+    voltage on O with the other section's branch connected:
+
+        R_t = R41/N_TONAL                 tonal source resistance (78 kOhm)
+        R_n = R55 + VR9U || VR9L          noise source resistance at O
+        g_noise = [ (RL||R_t)/(R_n + RL||R_t) ] / [ RL/(R_n + RL) ]
+        g_tonal = [ (RL||R_n)/(R_t + RL||R_n) ] / [ RL/(R_t + RL) ]
+
+    Default VR9 (25k/195k): g_noise = 0.905 (-0.87 dB), g_tonal = 0.833
+    (-1.59 dB). Against the nodal AC solution with C21, C31 and the
+    collectors: within 0.06 dB from 200 Hz to 5 kHz, up to 0.6 dB at 50 Hz
+    (tests/test_bus_load.py). TODO (D1-A, to re-evaluate): one bus node O
+    inside the WDF of the noise section, with the tonal branch as a leaf.
+    """
+    nv = NoiseVoices
+    pos = nv.VR9_POS_DEFAULT if vr9_pos is None else float(vr9_pos)
+    u = max(pos * nv.VR9, 1.0)
+    l = max((1.0 - pos) * nv.VR9, 1.0)
+    rl = TonalDrum.RLOAD
+    r_t = BDO_PARAMS['kick_load'] / TonalDrum.N_TONAL
+    r_n = nv.R55 + u * l / (u + l)
+
+    def par(a, b):
+        return a * b / (a + b)
+    g_noise = (par(rl, r_t) / (r_n + par(rl, r_t))) / (rl / (r_n + rl))
+    g_tonal = (par(rl, r_n) / (r_t + par(rl, r_n))) / (rl / (r_t + rl))
+    return g_noise, g_tonal
