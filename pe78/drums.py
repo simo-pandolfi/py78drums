@@ -149,7 +149,7 @@ class TonalDrum(BaseWDFDrum):
         ----------
         vr4 : float
             VR4 value in Ohm (0 ... ~470 kOhm). Larger VR4 -> longer decay,
-            up to self-oscillation (bass drum: above about 214.7 kOhm), limited
+            up to self-oscillation (bass drum: above about 189.5 kOhm), limited
             by the CD4011A gate (see twint.py).
         """
         self.voice.set_vr4(vr4)

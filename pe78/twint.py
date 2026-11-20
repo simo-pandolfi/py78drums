@@ -66,12 +66,12 @@ Gate model (CD4011AGate, decisions D1-A, D2-B of C12 and plan D1-A..D4-A):
   VDD = 5 V. Thresholds 1.5 V for N and P (RCA File No. 479, Fig. 7.7:
   supply current from Vi = 1.5 V to VDD - 1.5 V). K from the current at the
   switching point, about 0.5 mA at VDD = 5 V (Fig. 7.7): K = 0.93 mA/V^2;
-  gm = 2.0 mS at the operating point. lam = 0.0292 1/V was tuned in C12 so
-  that the bass drum self-oscillated above VR4 = 189.5 kOhm, as the former
-  linear model (a = -40, r_o = 1 kOhm, decision D4-A), with n1 loaded by the
-  27 kOhm trigger source of that time: A0 = 73.4, r_out = 36.7 kOhm. Since
-  C13 n1 is loaded by R16 only (D2 at 0 V), so the threshold is 214.7 kOhm
-  with the same lam.
+  gm = 2.0 mS at the operating point. lam = 0.0191 1/V is tuned so that the
+  bass drum self-oscillates above VR4 = 189.5 kOhm, as the former linear
+  model (a = -40, r_o = 1 kOhm, decision D4-A), on the circuit of C13 (n1
+  loaded by R16 and D2 at 0 V; decision E2): A0 = 109.9, r_out = 55 kOhm.
+  (C12 had lam = 0.0292, A0 = 73.4, tuned with the 27 kOhm load of the old
+  trigger source on n1.)
   At full drive (VGS = 5 V) the square law gives about 6 mA, against
   1.1/1.2 mA of the typical curves of Fig. 7.8/7.9: one square law cannot
   follow both figures; the operating point (Fig. 7.7) is preferred.
@@ -92,10 +92,11 @@ VR4 semantics:
   VR4 = 0 ... ~470 kOhm, default 150 kOhm -> r_bias = 300 kOhm.
   The DC operating point does not depend on VR4. VR4 sets the AC feedback,
   i.e. the distance from self-oscillation: larger VR4 -> longer decay and
-  slightly lower pitch. Bass drum, small signal (since C13): VR4 = 0 ->
-  92.7 Hz, tau 9.3 ms; 150 kOhm -> 77.8 Hz, 60.1 ms; self-oscillation above
-  214.7 kOhm (former linear model with the 27 kOhm load on n1: 110 Hz/9.1 ms,
-  90.3 Hz/82.7 ms, 189.5 kOhm). Above the threshold the oscillation is
+  slightly lower pitch. Bass drum, small signal: VR4 = 0 -> 92.8 Hz,
+  tau 9.8 ms; 150 kOhm -> 77.8 Hz, 92.0 ms; self-oscillation above
+  189.5 kOhm (former linear model with the 27 kOhm load on n1: 110 Hz/9.1 ms,
+  90.3 Hz/82.7 ms, 189.5 kOhm). Thresholds of the other voices 188.4-191.2
+  kOhm. Above the threshold the oscillation is
   limited by the rails, by the compression of the gate and, on the negative
   swings of n1, by D2.
 """
@@ -144,7 +145,7 @@ class CD4011AGate:
     VDD   = 5.0         # [V]   supply
     VT0   = 1.5         # [V]   N and P threshold at vm = 2.5 V (Fig. 7.7)
     I_M   = 0.5e-3      # [A]   stack current at the switching point (Fig. 7.7)
-    LAM   = 0.0292235   # [1/V] channel-length modulation, tuned (D4-A)
+    LAM   = 0.0190638   # [1/V] channel-length modulation, tuned (D4-A, E2)
     VM_DEFAULT = 2.5    # [V]
     K = 2.0 * I_M / ((VDD / 2 - VT0) ** 2 * (1.0 + LAM * VDD / 2))   # [A/V^2]
 
@@ -282,7 +283,7 @@ class TwinTDrum:
 
         The feedback resistance becomes R10 + VR4. VR4 sets the AC feedback,
         not the DC operating point: larger VR4 -> longer decay, up to
-        self-oscillation (bass drum: above about 214.7 kOhm), where the
+        self-oscillation (bass drum: above about 189.5 kOhm), where the
         oscillation is limited by the gate (see module docstring).
         Physical range: 0 Ohm (VR4=0) ... ~470 kOhm.
         """

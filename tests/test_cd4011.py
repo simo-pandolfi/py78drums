@@ -11,16 +11,16 @@ R-type scattering matrix: no DC operating point, and above the VR4 threshold
 reached +3.5/-3.4 V around the operating point, beyond the 0-5 V swing.
 
 1. Gate law: unloaded switching voltage = vm (1.5 ... 3.5 V); stack current
-   0.5 mA at the switching point (vm = 2.5 V); gm = 2.0 mS, A0 = 73.4;
+   0.5 mA at the switching point (vm = 2.5 V); gm = 2.0 mS, A0 = 109.9;
    Jacobian of the multiport law against finite differences (saturation,
    triode, negative V_DS).
 2. DC operating point: at rest V_n3 stays at V_dc within 1 uV (rounding
    residues of the start, about 1e-7 V) and the TonalDrum output within
    10 nV (no power-on transient).
-3. Small signal: threshold of the linearised circuit 189.5 kOhm with n1
-   loaded by 27 kOhm as before C13 (as the former linear model, decision
-   D4-A), 214.7 kOhm with the edge detector of C13 (D2 at 0 V: n1 loaded by
-   R16 only), also with vm = 1.5 and 3.5 V; simulated
+3. Small signal: threshold of the linearised circuit 189.5 kOhm (as the
+   former linear model, decision D4-A, tuned on the circuit of C13: n1
+   loaded by R16 and D2 at 0 V, decision E2; 164.7 kOhm with the 27 kOhm
+   load of before C13), also with vm = 1.5 and 3.5 V; simulated
    frequency and decay after a 1 mV step on C7 against the dominant pole of
    the linearised circuit (bass drum, VR4 = 150 kOhm).
 4. Above the threshold (VR4 = 220 and 470 kOhm): bounded oscillation inside
@@ -55,7 +55,7 @@ from pe78.twint import CD4011AGate           # noqa: E402
 FS = 48000
 VOICES = ("BDO_PARAMS", "CONGA_PARAMS", "HBONGO_PARAMS", "LBONGO_PARAMS", "CLAVES_PARAMS")
 THR_LINEAR = 189.54e3       # VR4 threshold of the former linear model (bass drum)
-THR_C13 = 214.7e3           # threshold with the edge detector of C13 (n1 loaded by D2 only)
+THR_PRE_C13 = 164.65e3      # same gate (lambda of E2) with the 27 kOhm load on n1 of before C13
 G_PRE_C13 = 1 / 27e3        # load of n1 before C13: trigger source behind R13
 
 
@@ -132,7 +132,7 @@ def test_gate_law(verbose=False):
     i_n = 0.5 * g.K * (2.5 - g.vtn) ** 2 * (1 + g.LAM * 2.5)
     assert abs(i_n - 0.5e-3) < 1e-12, i_n
     _, gm, go = g.current(2.5, 2.5)
-    assert abs(gm - 2.0e-3) < 1e-6 and abs(gm / go - 73.4) < 0.1, (gm, gm / go)
+    assert abs(gm - 2.0e-3) < 1e-6 and abs(gm / go - 109.9) < 0.1, (gm, gm / go)
     if verbose:
         print(f"  K {g.K * 1e3:.4f} mA/V^2, lambda {g.LAM} 1/V, gm {gm * 1e3:.4f} mS, "
               f"A0 {gm / go:.2f}, r_out {1e-3 / go:.2f} kOhm")
@@ -168,8 +168,8 @@ def test_small_signal(verbose=False):
         if verbose:
             print(f"  vm {2.5 if vm is None else vm}: VR4 threshold {thr / 1e3:.2f} kOhm "
                   f"(n1 loaded by 27 kOhm as before C13: {thr_pre / 1e3:.2f} kOhm)")
-        assert abs(thr_pre - THR_LINEAR) < 0.5e3, (vm, thr_pre)
-        assert abs(thr - THR_C13) < 0.5e3, (vm, thr)
+        assert abs(thr - THR_LINEAR) < 0.5e3, (vm, thr)
+        assert abs(thr_pre - THR_PRE_C13) < 0.5e3, (vm, thr_pre)
     # simulated small-signal response, bass drum, VR4 = 150 kOhm, 1 mV trigger
     d = _drum(vr4=150e3)
     p = _dominant(d.voice, 150e3)
