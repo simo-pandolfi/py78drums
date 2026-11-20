@@ -17,7 +17,8 @@ Output: R41 of the N_TONAL voices joined before C21 into RLOAD (VR10).
    KCL at the four nodes, port voltages = node differences (KVL) and gate
    law, from the leaf waves (RTypeNLRoot.residuals()). The leaf order and
    the node pairs are the ones of the docstring of twint.py.
-2. R41 = 390 kOhm in all parameter dictionaries and in leaf 8.
+2. R41 = 390 kOhm in all parameter dictionaries and in leaf 7 (leaf 8 before
+   C13, when the trigger source was a twin-T leaf).
 3. TonalDrum output stage against the analytic transfer of V_n3 to RLOAD
    (bilinear warping included).
 
@@ -44,7 +45,8 @@ from pe78 import drums   # noqa: E402
 FS = 48000
 R41 = 390e3
 VOICES = ("BDO_PARAMS", "CONGA_PARAMS", "HBONGO_PARAMS", "LBONGO_PARAMS", "CLAVES_PARAMS")
-NODES = [(2, 0), (0, 3), (0, -1), (2, 1), (1, 3), (1, -1), (1, -1), (2, 3), (3, -1)]
+NODES = [(2, 0), (0, 3), (0, -1), (2, 1), (1, 3), (1, -1), (2, 3), (3, -1),   # twin-T
+         (4, -1), (4, -1), (4, 5), (5, -1), (5, 6)]                           # detector (C13)
 
 
 def _drum(name, **over):
@@ -58,7 +60,7 @@ def test_junction_kcl_kvl():
             root = d.voice.root
             leaves = [(leaf, p, q) for leaf, p, q in root.leaves]
             assert [(p, q) for _, p, q in leaves] == NODES, name
-            assert [leaf for leaf, _, _ in leaves] == d.voice.components, name
+            assert [leaf for leaf, _, _ in leaves] == d.voice.components + d.voice.detector, name
             worst = np.zeros(3)
             for k in range(FS // 10):
                 d.tick(4.5 if k < 480 else 0.0)
@@ -72,7 +74,7 @@ def test_r41():
     for name in VOICES:
         assert getattr(drums, name)["kick_load"] == R41, name
         v = _drum(name).voice
-        assert v.components[8] is v.r_out
+        assert v.components[7] is v.r_out
         assert v.r_out.Rp == R41, f"{name}: r_out = {v.r_out.Rp}"
 
 
@@ -82,7 +84,6 @@ def test_output_stage():
     r_th = R41 / n
     for f in (5.0, 20.0, 96.0, 1000.0):     # integer samples per period at 48 kHz
         d = _drum("BDO_PARAMS")
-        d.detector.process_sample = lambda v: 0.0            # no trigger
         n_per = int(round(FS / f))
         n_tot = n_per * int(np.ceil(0.5 * f + 2))            # >= 0.5 s, integer periods
         k = np.arange(n_tot)

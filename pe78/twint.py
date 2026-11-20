@@ -10,36 +10,53 @@ Conga added from M252-M253 SGS-Ates TechnicalNotes 131
 Voices: Bass Drum (IC4a), Hi Bongo (IC4b), Low Bongo (IC4c),
         Claves (IC4d), Conga (same structure, different capacitor values).
 
-Structure:
-  EdgeDetector: converts a digital gate into a positive trigger spike.
-  TwinTDrum:    damped Twin-T oscillator around a CD4011A NAND gate used as
-                an inverter (inputs tied), nonlinear (C12); VR4 sets the
-                decay (see below).
+Structure (one circuit per voice since C13):
+  TwinTDrum:    edge detector (M253 output, R14, C8, R15, R13, D2) and damped
+                Twin-T oscillator around a CD4011A NAND gate used as an
+                inverter (inputs tied), nonlinear (C12); VR4 sets the decay.
   CD4011AGate:  square-law model of the gate (both stacks), see below.
 
-Physical topology — 4 nodes, 9 linear WDF leaves, 2 nonlinear ports:
+Physical topology — 7 nodes, 13 linear WDF leaves, 3 nonlinear ports:
   n0 = NB_R    : midpoint of R11-R12 (C5 shunt to GND)
-  n1 = NC_C    : midpoint of C6-C7  (R16 shunt to GND, trigger injection)
+  n1 = NC_C    : midpoint of C6-C7  (R16 shunt to GND, cathode of D2)
   n2 = NAND_IN : CD4011 pins 1+2
   n3 = NAND_OUT: CD4011 pin 3
+  t1           : M253 output (pin 4 for the bass drum), R14 to GND
+  t2           : C8-R15-R13 node
+  a            : anode of D2
+
+  Edge detector:  [M253]──[t1]──[C8]──[t2]──[R13]──[a]──[D2 >|]──[n1]
+                           R14 to GND   R15 to GND
 
   First T  (resistive branch): [NAND_IN]──[R11]──┬──[R12]──[NAND_OUT]
                                                  └──[C5]──[GND]
 
   Second T (capacitive branch):[NAND_IN]──[C6]──┬──[C7]──[NAND_OUT]
                                                 └──[R16]──[GND]
-                                                └──[trigger spike]
+                                                └──[D2 cathode]
 
   Bias+Decay: [NAND_IN]──[R10 + VR4]──[NAND_OUT]
 
   Output:     [NAND_OUT]──[R41]──[instrument bus]
 
-Leaf order (components list): 0:r11 1:r12 2:c5 3:c6 4:c7 5:r16 6:vtrig
-7:r_bias 8:r_out. The leaves are joined by an R-type junction derived from
-the MNA of the network (pe78/wdf_nlroot.py, RTypeNLRoot); the gate is a
-multiport nonlinearity at the root: port n2-GND (input, no current) and port
-n3-GND (output current, function of V_n2 and V_n3), solved by Newton per
-sample (decision D3-A of the plan).
+M253 output: switched source as in noise_voices.py, on: V_trigger behind
+350 Ohm, off: 0 V behind 10 MOhm (user: equivalent to D1-D4 of the .asc).
+D2 1N4148: LTspice standard.dio, Is = 2.52 nA, N = 1.752 (C14; drop
+0.38/0.48/0.58 V at 0.01/0.1/1 mA). D2 conducts on the rising edge of the
+trigger and whenever n1 swings below t2 minus about one diode drop: the
+detector network then loads the twin-T (damping that depends on the
+amplitude). Before C13, D2 went to GND and the twin-T was fed by a source
+equal to the voltage on R13 behind another 27 kOhm (R13 counted twice, no
+coupling back), and R14 was shorted by a 1 mOhm source.
+
+Twin-T leaf order (components list): 0:r11 1:r12 2:c5 3:c6 4:c7 5:r16
+6:r_bias 7:r_out; detector leaves (detector list): 0:m253 1:r14 2:c8
+3:r15 4:r13. All leaves are joined by one R-type junction derived from the
+MNA of the network (pe78/wdf_nlroot.py, RTypeNLRoot); D2 (one-port, a-n1)
+and the gate (multiport: n2-GND input with no current, n3-GND output current
+as a function of V_n2 and V_n3) are solved together at the root by Newton
+per sample (decision D3-A of the plan; the method of the plan for
+nonlinearities coupled without delay).
 
 Gate model (CD4011AGate, decisions D1-A, D2-B of C12 and plan D1-A..D4-A):
   NAND with inputs tied: two NMOS in series pull n3 down, two PMOS in
@@ -49,16 +66,19 @@ Gate model (CD4011AGate, decisions D1-A, D2-B of C12 and plan D1-A..D4-A):
   VDD = 5 V. Thresholds 1.5 V for N and P (RCA File No. 479, Fig. 7.7:
   supply current from Vi = 1.5 V to VDD - 1.5 V). K from the current at the
   switching point, about 0.5 mA at VDD = 5 V (Fig. 7.7): K = 0.93 mA/V^2;
-  gm = 2.0 mS at the operating point. lam = 0.0292 1/V is tuned so that the
-  bass drum self-oscillates above VR4 = 189.5 kOhm, as the former linear
-  model (a = -40, r_o = 1 kOhm, decision D4-A): A0 = 73.4, r_out = 36.7 kOhm.
+  gm = 2.0 mS at the operating point. lam = 0.0292 1/V was tuned in C12 so
+  that the bass drum self-oscillated above VR4 = 189.5 kOhm, as the former
+  linear model (a = -40, r_o = 1 kOhm, decision D4-A), with n1 loaded by the
+  27 kOhm trigger source of that time: A0 = 73.4, r_out = 36.7 kOhm. Since
+  C13 n1 is loaded by R16 only (D2 at 0 V), so the threshold is 214.7 kOhm
+  with the same lam.
   At full drive (VGS = 5 V) the square law gives about 6 mA, against
   1.1/1.2 mA of the typical curves of Fig. 7.8/7.9: one square law cannot
   follow both figures; the operating point (Fig. 7.7) is preferred.
   Chip parameter vm (switching voltage, 1.5 ... 3.5 V, i.e. 30-70 % of VDD
   as in Fig. 7.4; default 2.5 V): the N and P thresholds move in opposite
   directions (VT0 +- d). The overdrive at the operating point stays 1 V, so
-  gm, A0 and the VR4 threshold do not change with vm (189.5-189.6 kOhm);
+  gm, A0 and the VR4 threshold do not change with vm (within 0.1 kOhm);
   vm sets the DC level and the headroom towards the two rails, i.e. the
   asymmetry of the clipping.
 
@@ -72,95 +92,19 @@ VR4 semantics:
   VR4 = 0 ... ~470 kOhm, default 150 kOhm -> r_bias = 300 kOhm.
   The DC operating point does not depend on VR4. VR4 sets the AC feedback,
   i.e. the distance from self-oscillation: larger VR4 -> longer decay and
-  slightly lower pitch. Bass drum, small signal: VR4 = 0 -> 105.6 Hz,
-  tau 9.1 ms; 150 kOhm -> 86.9 Hz, 83 ms; self-oscillation above 189.5 kOhm
-  (former linear model: 110 Hz, 90 Hz, same tau and threshold). Above the
-  threshold the oscillation is limited by the rails and by the compression
-  of the gate.
+  slightly lower pitch. Bass drum, small signal (since C13): VR4 = 0 ->
+  92.7 Hz, tau 9.3 ms; 150 kOhm -> 77.8 Hz, 60.1 ms; self-oscillation above
+  214.7 kOhm (former linear model with the 27 kOhm load on n1: 110 Hz/9.1 ms,
+  90.3 Hz/82.7 ms, 189.5 kOhm). Above the threshold the oscillation is
+  limited by the rails, by the compression of the gate and, on the negative
+  swings of n1, by D2.
 """
 
 import numpy as np
 import pywdf.core.wdf as wdf
 from scipy.optimize import brentq
 
-from pe78.wdf_nlroot import RTypeNLRoot
-
-
-# =============================================================================
-#  EdgeDetector
-# =============================================================================
-class EdgeDetector:
-    """
-    Edge Detector — converts a digital gate to a positive trigger spike.
-    (Practical Electronics, January 1978, Fig. 6 pulse shaper section)
-
-    Topology:
-      TRIG -> [Node_T1: VS || R14]──[C8]──> [Node_T2: || R15]──[R13]──>[D2]
-
-      R14 (12 kOhm): pull-down, anchors Node_T1 to GND (M253 open-drain output)
-      C8  (0.15 uF): AC differentiator;  tau1 = C8*R15 ~= 7 ms
-      R15 (47 kOhm): shunt Node_T2 to GND
-      R13 (27 kOhm): current limiter;    tau2 = C8*R13 ~= 4 ms
-      D2  (1N4148):  half-wave rectifier, passes only positive spikes
-                     (rising edge of the trigger gate); LTspice standard.dio
-                     Is = 2.52 nA, N = 1.752, as D6-D9 in noise_voices.py
-                     (drop 0.38/0.48/0.58 V at 0.01/0.1/1 mA)
-
-    Parameters
-    ----------
-    fs : int
-        Sample rate in Hz.
-    r_vals : list of float
-        [R14, R15, R13].
-    c_val : float
-        C8 capacitance in Farad.
-    """
-
-    # D2 1N4148, LTspice standard.dio (same constants as noise_voices.py)
-    D_IS   = 2.52e-9      # [A]  saturation current
-    D_N    = 1.752        # [-]  emission coefficient
-    VT_27C = 25.852e-3    # [V]  kT/q at 27 C (LTspice)
-
-    def __init__(self, fs, r_vals, c_val):
-        r14 = float(r_vals[0])
-        r15 = float(r_vals[1])
-        r13 = float(r_vals[2])
-
-        self.vs  = wdf.ResistiveVoltageSource(1e-3)  # near-ideal voltage source
-        self.r14 = wdf.Resistor(r14)
-        self.c8  = wdf.Capacitor(float(c_val), fs)
-        self.r15 = wdf.Resistor(r15)
-        self.r13 = wdf.Resistor(r13)
-
-        # WDF tree: root = Diode (nonlinear element, open port)
-        p_t1       = wdf.ParallelAdaptor(self.vs, self.r14)   # Node_T1: VS || R14
-        s_c8       = wdf.SeriesAdaptor(p_t1, self.c8)         # series C8
-        p_t2       = wdf.ParallelAdaptor(s_c8, self.r15)      # Node_T2: || R15
-        self.s_r13 = wdf.SeriesAdaptor(p_t2, self.r13)        # series R13
-        # D2 1N4148. pywdf Diode uses Vt*n_diodes as thermal voltage, so
-        # n_diodes = D_N gives i = Is*(exp(v/(N*Vt)) - 1).
-        self.diode = wdf.Diode(self.s_r13, Is=self.D_IS, Vt=self.VT_27C,
-                               n_diodes=self.D_N)
-
-    def process_sample(self, v_trigger: float) -> float:
-        """
-        Compute one sample of the edge detector output.
-
-        Parameters
-        ----------
-        v_trigger : float
-            Gate input voltage (e.g. 0 V or 4.5 V from M253).
-
-        Returns
-        -------
-        float
-            Voltage across R13 (~= 0 V at rest, positive spike on rising edge).
-            Pass directly to TwinTDrum.process_sample().
-        """
-        self.vs.set_voltage(v_trigger)
-        self.diode.accept_incident_wave(self.s_r13.propagate_reflected_wave())
-        self.s_r13.accept_incident_wave(self.diode.propagate_reflected_wave())
-        return self.r13.wave_to_voltage()
+from pe78.wdf_nlroot import RTypeNLRoot, diode_law
 
 
 # =============================================================================
@@ -246,13 +190,18 @@ class CD4011AGate:
 # =============================================================================
 class TwinTDrum:
     """
-    Damped Twin-T oscillator around a CD4011A gate (Practical Electronics
-    1978, Fig. 7 — Bass Drum and variants). See the module docstring.
+    One tonal voice of Fig. 7: edge detector and damped Twin-T oscillator
+    around a CD4011A gate (Practical Electronics 1978 — Bass Drum and
+    variants). See the module docstring.
 
     Parameters
     ----------
     fs : int
         Sample rate in Hz.
+    edge_r : list of float
+        [R14, R15, R13] (a fourth value, R16, is ignored: it is in r_params).
+    edge_c : float
+        C8 in Farad.
     r_params : list of float
         [R11, R12, R16].
     c_params : list of float
@@ -266,14 +215,22 @@ class TwinTDrum:
         Chip parameter: switching voltage of the gate [V], 1.5 ... 3.5
         (default 2.5).
 
-    Observable after process_sample(): v_in, v_out (V_n2, V_n3) [V].
+    Observable after process_sample(): v_in, v_out (V_n2, V_n3), v_n1,
+    i_d2 (current of D2) .
     """
 
     # Fixed feedback resistor R10, in series with VR4 (AC feedback; see module docstring)
     R10 = 150e3     # [Ohm]
+    # M253 output (as noise_voices.NoiseVoices)
+    R_ON, R_OFF = 350.0, 10e6           # [Ohm]
+    # D2 1N4148, LTspice standard.dio (same constants as noise_voices.py)
+    D_IS   = 2.52e-9      # [A]  saturation current
+    D_N    = 1.752        # [-]  emission coefficient
+    VT_27C = 25.852e-3    # [V]  kT/q at 27 C (LTspice)
 
-    def __init__(self, fs, r_params, c_params, vr4, r_load,
+    def __init__(self, fs, edge_r, edge_c, r_params, c_params, vr4, r_load,
                  vm=CD4011AGate.VM_DEFAULT):
+        r14, r15, r13 = (float(x) for x in edge_r[:3])
         r11 = float(r_params[0])
         r12 = float(r_params[1])
         r16 = float(r_params[2])
@@ -282,37 +239,38 @@ class TwinTDrum:
         c7  = float(c_params[2])
 
         self._vr4 = float(vr4)
+        self._on = False
         self.gate = CD4011AGate(vm)
 
-        # WDF components
-        self.r11          = wdf.Resistor(r11)
-        self.r12          = wdf.Resistor(r12)
-        self.c5           = wdf.Capacitor(c5, fs)
-        self.c6           = wdf.Capacitor(c6, fs)
-        self.c7           = wdf.Capacitor(c7, fs)
-        self.r16          = wdf.Resistor(r16)
-        self.r_trigger_in = wdf.ResistiveVoltageSource(27e3)            # Z = R13
-        self.r_bias       = wdf.Resistor(self.R10 + self._vr4)         # R10 + VR4
-        self.r_out        = wdf.Resistor(float(r_load))                 # R41
+        # WDF leaves: edge detector
+        self.m253 = wdf.ResistiveVoltageSource(self.R_OFF)
+        self.r14  = wdf.Resistor(r14)
+        self.c8   = wdf.Capacitor(float(edge_c), fs)
+        self.r15  = wdf.Resistor(r15)
+        self.r13  = wdf.Resistor(r13)
+        # WDF leaves: twin-T
+        self.r11    = wdf.Resistor(r11)
+        self.r12    = wdf.Resistor(r12)
+        self.c5     = wdf.Capacitor(c5, fs)
+        self.c6     = wdf.Capacitor(c6, fs)
+        self.c7     = wdf.Capacitor(c7, fs)
+        self.r16    = wdf.Resistor(r16)
+        self.r_bias = wdf.Resistor(self.R10 + self._vr4)         # R10 + VR4
+        self.r_out  = wdf.Resistor(float(r_load))                 # R41
 
-        self.components = [
-            self.r11,           # 0
-            self.r12,           # 1
-            self.c5,            # 2
-            self.c6,            # 3
-            self.c7,            # 4
-            self.r16,           # 5
-            self.r_trigger_in,  # 6
-            self.r_bias,        # 7
-            self.r_out,         # 8
-        ]
-        n0, n1, n2, n3, gnd = 0, 1, 2, 3, -1
+        self.components = [self.r11, self.r12, self.c5, self.c6, self.c7,
+                           self.r16, self.r_bias, self.r_out]
+        self.detector = [self.m253, self.r14, self.c8, self.r15, self.r13]
+        n0, n1, n2, n3, t1, t2, a, gnd = 0, 1, 2, 3, 4, 5, 6, -1
         nodes = [(n2, n0), (n0, n3), (n0, gnd), (n2, n1), (n1, n3),
-                 (n1, gnd), (n1, gnd), (n2, n3), (n3, gnd)]
+                 (n1, gnd), (n2, n3), (n3, gnd),
+                 (t1, gnd), (t1, gnd), (t1, t2), (t2, gnd), (t2, a)]
+        leaves = self.components + self.detector
         self.root = RTypeNLRoot(
-            4, [(c, p, q) for c, (p, q) in zip(self.components, nodes)],
-            ports=[(n2, gnd, None), (n3, gnd, None)],
-            multiport=[([0, 1], self.gate.law)], tol=1e-12)
+            7, [(c, p, q) for c, (p, q) in zip(leaves, nodes)],
+            ports=[(a, n1, diode_law(self.D_IS, self.D_N * self.VT_27C)),
+                   (n2, gnd, None), (n3, gnd, None)],
+            multiport=[([1, 2], self.gate.law)], tol=1e-12)
         self.reset()
 
     # -----------------------------------------------------------------------
@@ -324,7 +282,7 @@ class TwinTDrum:
 
         The feedback resistance becomes R10 + VR4. VR4 sets the AC feedback,
         not the DC operating point: larger VR4 -> longer decay, up to
-        self-oscillation (bass drum: above about 189.5 kOhm), where the
+        self-oscillation (bass drum: above about 214.7 kOhm), where the
         oscillation is limited by the gate (see module docstring).
         Physical range: 0 Ohm (VR4=0) ... ~470 kOhm.
         """
@@ -332,15 +290,22 @@ class TwinTDrum:
         self.r_bias.set_resistance(self.R10 + self._vr4)
 
     def reset(self):
-        """Put the circuit at its DC operating point (capacitors charged)."""
+        """Put the circuit at its DC operating point (capacitors charged,
+        M253 output off, D2 at 0 V)."""
+        if self._on:
+            self.m253.set_resistance(self.R_OFF)
+            self._on = False
+        self.m253.set_voltage(0.0)
         v = self.gate.dc_point(self.r_out.Rp)
         self.v_dc = v
-        for c, vc in ((self.c5, v), (self.c6, v), (self.c7, -v)):
+        for c, vc in ((self.c5, v), (self.c6, v), (self.c7, -v), (self.c8, 0.0)):
             c.z = vc
             c.a = c.b = vc
-        self.root.v_ports = np.array([v, v])
+        self.root.v_ports = np.array([0.0, v, v])
         self.r_out.a = self.r_out.b = v
         self.v_in = self.v_out = v
+        self.v_n1 = 0.0
+        self.i_d2 = 0.0
 
     # -----------------------------------------------------------------------
     # Public interface
@@ -352,8 +317,8 @@ class TwinTDrum:
         Parameters
         ----------
         v_trigger : float
-            Output of EdgeDetector.process_sample() — positive spike,
-            injected into NC_C (n1) via r_trigger_in (impedance = R13).
+            M253 output: above 0.5 V the output is on (v_trigger behind
+            350 Ohm), otherwise off (0 V behind 10 MOhm).
 
         Returns
         -------
@@ -362,7 +327,13 @@ class TwinTDrum:
             bus voltage is negligible against V_n3). Absolute voltage: at rest
             it is V_dc (about 2.5 V); TonalDrum removes it with C21.
         """
-        self.r_trigger_in.set_voltage(v_trigger)
+        on = v_trigger > 0.5
+        if on != self._on:
+            self.m253.set_resistance(self.R_ON if on else self.R_OFF)
+            self._on = on
+        self.m253.set_voltage(v_trigger if on else 0.0)
         self.root.compute()
-        self.v_in, self.v_out = self.root.v_ports
+        self.v_in, self.v_out = self.root.v_ports[1:]
+        self.v_n1 = self.root.v_nodes[1]
+        self.i_d2 = self.root.i_ports[0]
         return self.v_out

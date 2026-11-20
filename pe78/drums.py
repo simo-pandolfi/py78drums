@@ -35,7 +35,7 @@ Instrument parameter dictionaries:
 
 import numpy as np
 
-from pe78.twint import CD4011AGate, EdgeDetector, TwinTDrum
+from pe78.twint import CD4011AGate, TwinTDrum
 
 NOISE_STD = 1.0     # [-]  unit-variance noise; the level (B1) is set in pe78/noise.py
 from pe78.noise_voices import NoiseVoices  # noqa: E402,F401  (re-export)
@@ -61,7 +61,7 @@ class BaseWDFDrum:
 # ---------------------------------------------------------------------------
 class TonalDrum(BaseWDFDrum):
     """
-    Tonal drum voice — EdgeDetector + TwinTDrum (damped sinusoidal oscillator).
+    Tonal drum voice — TwinTDrum: edge detector and twin-T oscillator (C13).
 
     Used for: Bass Drum, Hi Bongo, Low Bongo, Claves, Conga.
 
@@ -91,9 +91,9 @@ class TonalDrum(BaseWDFDrum):
         fs : int
             Sample rate in Hz.
         edge_r : list of float
-            [R14, R15, R13, R16] for EdgeDetector.
+            [R14, R15, R13, R16] of the edge detector (R16 is also in kick_r).
         edge_c : float
-            C8 capacitance in Farad for EdgeDetector.
+            C8 capacitance in Farad.
         kick_r : list of float
             [R11, R12, R16] for TwinTDrum.
         kick_c : list of float
@@ -106,9 +106,8 @@ class TonalDrum(BaseWDFDrum):
             Chip parameter of the CD4011A gate: switching voltage [V],
             1.5 ... 3.5 (None: CD4011AGate.VM_DEFAULT = 2.5 V). See twint.py.
         """
-        self.detector = EdgeDetector(fs, edge_r, edge_c)
-        self.voice    = TwinTDrum(fs, kick_r, kick_c, kick_vr4, kick_load,
-                                  vm=CD4011AGate.VM_DEFAULT if vm is None else vm)
+        self.voice = TwinTDrum(fs, edge_r, edge_c, kick_r, kick_c, kick_vr4, kick_load,
+                               vm=CD4011AGate.VM_DEFAULT if vm is None else vm)
 
         # C21 output coupling: bilinear HP (same form as snare.py C31)
         r_th  = float(kick_load) / self.N_TONAL
@@ -126,7 +125,7 @@ class TonalDrum(BaseWDFDrum):
         Parameters
         ----------
         v_trigger : float
-            Gate voltage (4.5 V = on, 0 V = off).
+            M253 output: 4.5 V = on (behind 350 Ohm), 0 V = off (10 MOhm).
         noise_sample : float
             Unused; present for interface uniformity.
 
@@ -135,8 +134,7 @@ class TonalDrum(BaseWDFDrum):
         float
             Voltage on the pre-amp input [V] (see class docstring).
         """
-        v_spike = self.detector.process_sample(v_trigger)
-        x = self.voice.process_sample(v_spike) / self.N_TONAL    # V_th of the joined node
+        x = self.voice.process_sample(v_trigger) / self.N_TONAL  # V_th of the joined node
         y = (self._b_c21[0] * x + self._b_c21[1] * self._c21_x
              - self._a1_c21 * self._c21_y)
         self._c21_x = x
@@ -151,7 +149,7 @@ class TonalDrum(BaseWDFDrum):
         ----------
         vr4 : float
             VR4 value in Ohm (0 ... ~470 kOhm). Larger VR4 -> longer decay,
-            up to self-oscillation (bass drum: above about 189.5 kOhm), limited
+            up to self-oscillation (bass drum: above about 214.7 kOhm), limited
             by the CD4011A gate (see twint.py).
         """
         self.voice.set_vr4(vr4)

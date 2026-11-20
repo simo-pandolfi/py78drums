@@ -17,10 +17,12 @@ reached +3.5/-3.4 V around the operating point, beyond the 0-5 V swing.
 2. DC operating point: at rest V_n3 stays at V_dc within 1 uV (rounding
    residues of the start, about 1e-7 V) and the TonalDrum output within
    10 nV (no power-on transient).
-3. Small signal: threshold of the linearised circuit 189.5 kOhm (as the former
-   linear model, decision D4-A), also with vm = 1.5 and 3.5 V; simulated
-   frequency and decay with a 1 mV trigger against the dominant pole of the
-   linearised circuit (bass drum, VR4 = 150 kOhm).
+3. Small signal: threshold of the linearised circuit 189.5 kOhm with n1
+   loaded by 27 kOhm as before C13 (as the former linear model, decision
+   D4-A), 214.7 kOhm with the edge detector of C13 (D2 at 0 V: n1 loaded by
+   R16 only), also with vm = 1.5 and 3.5 V; simulated
+   frequency and decay after a 1 mV step on C7 against the dominant pole of
+   the linearised circuit (bass drum, VR4 = 150 kOhm).
 4. Above the threshold (VR4 = 220 and 470 kOhm): bounded oscillation inside
    0 ... 5 V with a steady amplitude.
 5. Newton at the root: at most 20 iterations (claves up to 10, the others
@@ -53,6 +55,8 @@ from pe78.twint import CD4011AGate           # noqa: E402
 FS = 48000
 VOICES = ("BDO_PARAMS", "CONGA_PARAMS", "HBONGO_PARAMS", "LBONGO_PARAMS", "CLAVES_PARAMS")
 THR_LINEAR = 189.54e3       # VR4 threshold of the former linear model (bass drum)
+THR_C13 = 214.7e3           # threshold with the edge detector of C13 (n1 loaded by D2 only)
+G_PRE_C13 = 1 / 27e3        # load of n1 before C13: trigger source behind R13
 
 
 def _drum(name="BDO_PARAMS", vr4=None, vm=None):
@@ -74,11 +78,19 @@ def _run(d, n, level=4.5, gate_samples=480):
 # -----------------------------------------------------------------------------
 # Linearised circuit (nodal, continuous time)
 # -----------------------------------------------------------------------------
-def _poles(voice, vr4):
+def _poles(voice, vr4, g_d2=None):
+    """Poles of the twin-T linearised at the DC point. At rest the M253 output
+    is off and D2 is at 0 V: the detector loads n1 through the D2
+    conductance Is/(N Vt) (18 MOhm) in series with R13 and R15 || (R14 + C8);
+    it is included as D2 alone (the rest is negligible against it).
+    g_d2 overrides that conductance (e.g. 1/27 kOhm for the circuit before C13)."""
     v = voice.v_dc
     _, gm, go = voice.gate.current(v, v)
-    r11, r12, c5, c6, c7, r16, rt, _, r41 = (c.Rp if not hasattr(c, "C") else c.C
-                                             for c in voice.components)
+    r11, r12, r16, rb, r41 = (c.Rp for c in (voice.r11, voice.r12, voice.r16,
+                                              voice.r_bias, voice.r_out))
+    c5, c6, c7 = voice.c5.C, voice.c6.C, voice.c7.C
+    if g_d2 is None:
+        g_d2 = voice.D_IS / (voice.D_N * voice.VT_27C)
     G = np.zeros((4, 4))
     C = np.zeros((4, 4))
 
@@ -88,7 +100,7 @@ def _poles(voice, vr4):
                 M[a, b] += s * val
     add(G, 2, 0, 1 / r11)
     add(G, 0, 3, 1 / r12)
-    add(G, 1, -1, 1 / r16 + 1 / rt)
+    add(G, 1, -1, 1 / r16 + g_d2)
     add(G, 2, 3, 1 / (voice.R10 + vr4))
     add(G, 3, -1, 1 / r41)
     add(C, 0, -1, c5)
@@ -100,13 +112,13 @@ def _poles(voice, vr4):
     return w[np.isfinite(w)]
 
 
-def _dominant(voice, vr4):
-    w = _poles(voice, vr4)
+def _dominant(voice, vr4, g_d2=None):
+    w = _poles(voice, vr4, g_d2)
     return w[np.argmax(w.real)]
 
 
-def _threshold(voice):
-    return brentq(lambda r: _dominant(voice, r).real, 50e3, 1e6, xtol=1.0)
+def _threshold(voice, g_d2=None):
+    return brentq(lambda r: _dominant(voice, r, g_d2).real, 20e3, 1e6, xtol=1.0)
 
 
 # -----------------------------------------------------------------------------
@@ -151,16 +163,20 @@ def test_dc_point():
 
 def test_small_signal(verbose=False):
     for vm in (None, 1.5, 3.5):
-        thr = _threshold(_drum(vm=vm).voice)
+        v = _drum(vm=vm).voice
+        thr_pre, thr = _threshold(v, G_PRE_C13), _threshold(v)
         if verbose:
-            print(f"  vm {2.5 if vm is None else vm}: VR4 threshold {thr / 1e3:.2f} kOhm")
-        assert abs(thr - THR_LINEAR) < 0.5e3, (vm, thr)
+            print(f"  vm {2.5 if vm is None else vm}: VR4 threshold {thr / 1e3:.2f} kOhm "
+                  f"(n1 loaded by 27 kOhm as before C13: {thr_pre / 1e3:.2f} kOhm)")
+        assert abs(thr_pre - THR_LINEAR) < 0.5e3, (vm, thr_pre)
+        assert abs(thr - THR_C13) < 0.5e3, (vm, thr)
     # simulated small-signal response, bass drum, VR4 = 150 kOhm, 1 mV trigger
     d = _drum(vr4=150e3)
     p = _dominant(d.voice, 150e3)
     f_ref, tau_ref = abs(p.imag) / (2 * np.pi), -1 / p.real
     f_ref_w = FS / np.pi * np.arctan(np.pi * f_ref / FS)        # bilinear warping
-    vo, _ = _run(d, FS, level=1e-3)
+    d.voice.c7.z -= 1e-3          # 1 mV step on C7 (the M253 input switches above 0.5 V)
+    vo, _ = _run(d, FS, level=0.0)
     x = vo - d.voice.v_dc
     t = np.arange(len(x)) / FS
     w = slice(int(0.05 * FS), int(0.6 * FS))
@@ -173,7 +189,7 @@ def test_small_signal(verbose=False):
     slope = np.polyfit(tp, np.log(peaks), 1)[0]
     tau_sim = -1 / slope
     if verbose:
-        print(f"  BD 150k, 1 mV trigger: f {f_sim:.3f} Hz (pole {f_ref:.3f}, warped "
+        print(f"  BD 150k, 1 mV on C7: f {f_sim:.3f} Hz (pole {f_ref:.3f}, warped "
               f"{f_ref_w:.3f}), tau {1e3 * tau_sim:.2f} ms (pole {1e3 * tau_ref:.2f}); "
               f"peak |V_n3 - V_dc| {np.max(np.abs(x)) * 1e3:.3f} mV")
     assert abs(f_sim / f_ref_w - 1) < 2e-3, (f_sim, f_ref_w)

@@ -16,7 +16,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 from scipy.io import wavfile
 
-from pe78.twint import EdgeDetector, TwinTDrum
+from pe78.twint import TwinTDrum   # noqa: F401  (EdgeDetector merged into TwinTDrum in C13)
 from pe78.drums import (TonalDrum,
     BDO_PARAMS, CONGA_PARAMS, HBONGO_PARAMS, LBONGO_PARAMS, CLAVES_PARAMS)
 
