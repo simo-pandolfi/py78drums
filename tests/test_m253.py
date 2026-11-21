@@ -6,8 +6,9 @@ Regression test for D11 (P4): M253 trigger outputs of pe78/m253.py.
 
 LTspice (.asc of Fig. 6, B1 = 0, tools/ltspice_compare.py): each output is a
 5.2 V pulse through a 1N4148; C23 charges to 4.84-4.86 V and, with the diode
-reverse biased, only R47 discharges it: after an LC gate of 15 ms V(envelope)
-stays above 0.5 V for 0.804 s. Until P4 the voices used 4.5 V behind 350 Ohm
+reverse biased, only R47 discharges it: after an LC gate of 17 ms (the gates
+of the .asc used for the LTspice traces) V(envelope) stays above 0.5 V for
+0.804 s. Until P4 the voices used 4.5 V behind 350 Ohm
 and 10 MOhm when off (0.654 s), and the tonal voices took the trigger level
 as the source voltage.
 
@@ -15,8 +16,8 @@ as the source voltage.
    pe78/m253.py (4.85 V, 350 Ohm, open when off).
 2. The trigger is a gate: a tonal voice gives the same output for a 4.5 V and
    a 10 V trigger.
-3. LC hit at 96 kHz: C23 at the end of the gate within 4.80-4.86 V and
-   ENV > 0.5 V for 0.80-0.82 s after the gate start (model 0.809 s).
+3. LC hit of 17 ms at 96 kHz: C23 at the end of the gate within 4.80-4.86 V
+   and ENV > 0.5 V for 0.80-0.82 s after the gate start.
 
 Usage (from the py78drums root):
     python -m pytest tests/test_m253.py
@@ -59,7 +60,7 @@ def test_tonal_trigger_is_gate():
 
 def test_lc_envelope():
     nv = NoiseVoices(FS)
-    t0, g = 0.05, 0.015
+    t0, g = 0.05, 0.017
     n = int((t0 + 0.9) * FS)
     env = np.zeros(n)
     v_c23_end = None

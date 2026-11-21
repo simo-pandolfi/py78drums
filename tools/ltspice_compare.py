@@ -5,8 +5,10 @@
 P4: NoiseVoices against the LTspice simulation of Fig. 6 (same gates).
 
 LTspice reference: ltspice/Practical-Electronics-1978-01_Pagina_24_Fig6.asc
-with `.tran 0 1.6 0 0.25u`, gates of 15 ms at 5.2 V through D1-D4: SD 0.01 s,
-LC 0.15 s, SC 1.1 s, MR 1.4 s. Two runs: with B1 and with B1 = 0. For each run
+with `.tran 0 1.6 0 0.25u`, gates at 5.2 V through D1-D4 at SD 0.01 s, LC 0.15
+s, SC 1.1 s, MR 1.4 s; start and length are read from the PULSE sources of
+the .asc (--asc; 17 ms since 2026-11-21, 15 ms before). Two runs: with B1 and
+with B1 = 0. For each run
 (all files optional, looked up in --ltdir):
     noise_drum.wav, noise_drum_noB1.wav      .wave V(out), 16 bit 48 kHz, +-1 V
     *Fig6_envelope.txt, *Fig6_noB1_envelope.txt   V(envelope), TR4 base
@@ -66,8 +68,10 @@ import numpy as np
 from scipy.io import wavfile
 from scipy.signal import bilinear_zpk, resample_poly, sosfilt, ss2zpk, welch, zpk2sos
 
-GATES = {"sd": 0.01, "lc": 0.15, "sc": 1.1, "mr": 1.4}
-GATE_LEN = 0.015
+# gates (start, length) [s]: read from the .asc (--asc); these are the values
+# of the .asc before 2026-11-21 (15 ms), used only if a source is missing
+GATES = {"sd": (0.01, 0.015), "lc": (0.15, 0.015), "sc": (1.1, 0.015), "mr": (1.4, 0.015)}
+ASC_SOURCES = {"sd": "Snare", "lc": "Long_Cymbal", "sc": "Short_Cymbal", "mr": "Maracas"}
 T_END = 1.6
 SEGS = (("SD", 0.0, 0.15), ("LC", 0.15, 1.1), ("SC", 1.1, 1.4), ("MR", 1.4, 1.6))
 FS_HI = 4_800_000             # LTspice traces resampled here (max step 0.25 us; 100 x 48 kHz)
@@ -89,6 +93,9 @@ def parse_args():
                    help="folder that contains the pywdf package (default: PYWDF_ROOT)")
     p.add_argument("--repo", default=os.path.dirname(here))
     p.add_argument("--ltdir", required=True)
+    p.add_argument("--asc", default=os.path.join(os.path.dirname(here), "ltspice",
+                                                 "Practical-Electronics-1978-01_Pagina_24_Fig6.asc"),
+                   help="LTspice schematic the traces come from: gate start and length")
     p.add_argument("--fs", type=int, default=96000)
     p.add_argument("--seeds", type=int, default=4)
     p.add_argument("--m253", default=None, help="V_ON,R_ON,R_OFF")
@@ -100,6 +107,47 @@ def parse_args():
 # -----------------------------------------------------------------------------
 # LTspice data
 # -----------------------------------------------------------------------------
+SPICE_SCALE = (("meg", 1e6), ("mil", 25.4e-6), ("f", 1e-15), ("p", 1e-12), ("n", 1e-9),
+               ("u", 1e-6), ("\u00b5", 1e-6), ("m", 1e-3), ("k", 1e3), ("g", 1e9), ("t", 1e12))
+
+
+def spice_float(v):
+    """SPICE number: 100n, 1Meg, 0.015, 4.7k (trailing units ignored)."""
+    v = v.strip().lower()
+    i = 0
+    while i < len(v) and (v[i].isdigit() or v[i] in "+-.e"):
+        if v[i] == "e" and not (i + 1 < len(v) and (v[i + 1].isdigit() or v[i + 1] in "+-")):
+            break
+        i += 1
+    num, suf = float(v[:i]), v[i:]
+    for k, f in SPICE_SCALE:
+        if suf.startswith(k):
+            return num * f
+    return num
+
+
+def asc_gates(path):
+    """{voice: (start, length)} from PULSE(0 V delay tr tf ton ...) of the four sources."""
+    vals, blk = {}, {}
+    lines = open(path, encoding="latin-1").read().splitlines() + ["SYMBOL"]
+    for ln in lines:
+        if ln.startswith(("SYMBOL", "TEXT", "FLAG", "WIRE")):     # end of a symbol block
+            if "name" in blk and "pulse" in blk:
+                vals[blk["name"]] = blk["pulse"]
+            blk = {}
+        elif ln.startswith("SYMATTR InstName "):
+            blk["name"] = ln.split(None, 2)[2].strip()
+        elif ln.startswith("SYMATTR Value PULSE("):
+            blk["pulse"] = ln[len("SYMATTR Value PULSE("):].rstrip(")").split()
+    out = {}
+    for voice, name in ASC_SOURCES.items():
+        if name not in vals:
+            raise SystemExit(f"{path}: no PULSE source {name}")
+        p = [spice_float(v) for v in vals[name]]
+        out[voice] = (p[2], p[5])          # delay, ton
+    return out
+
+
 def find(ltdir, pattern, exclude=None):
     hits = [f for f in glob.glob(os.path.join(ltdir, pattern))
             if exclude is None or exclude not in os.path.basename(f)]
@@ -202,7 +250,7 @@ def render(NoiseVoices, fs, noise, m253=None):
     nv = cls(fs)
     n = int(round(T_END * fs))
     t = np.arange(1, n + 1) / fs
-    g = {k: np.where((t >= a) & (t < a + GATE_LEN), nv.V_ON, 0.0) for k, a in GATES.items()}
+    g = {k: np.where((t >= a) & (t < a + ln), nv.V_ON, 0.0) for k, (a, ln) in GATES.items()}
     out = {k: np.zeros(n) for k in REC}
     for i in range(n):
         nv.tick(g["sd"][i], g["lc"][i], g["sc"][i], g["mr"][i], noise[i])
@@ -284,12 +332,19 @@ def main():
     from pe78.noise_voices import NoiseVoices
     print("pywdf:", os.path.dirname(pywdf.__file__))
     fs = a.fs
+    global GATES
+    if os.path.isfile(a.asc):
+        GATES = asc_gates(a.asc)
+        print("gates from", a.asc)
+    else:
+        print(f"{a.asc} not found: gates of 15 ms")
+    print("  " + "  ".join(f"{k.upper()} {g[0]:g} s + {g[1] * 1e3:g} ms" for k, g in GATES.items()))
     m253 = tuple(float(v) for v in a.m253.split(",")) if a.m253 else None
     post = tuple(float(v) for v in a.post.split(",")) if a.post else None
     files = lt_files(a.ltdir)
     for k, v in files.items():
         print(f"  {k:9s} {v}")
-    rep = {"fs": fs, "seeds": a.seeds, "m253": m253, "post": post, "files": files}
+    rep = {"fs": fs, "seeds": a.seeds, "m253": m253, "post": post, "files": files, "gates": GATES}
 
     # ---- check of the collector network against the model (its own Rser, GAIN 1)
     rser_m = float(getattr(NoiseVoices, "L_RSER", 0.0))
