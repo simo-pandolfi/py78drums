@@ -12,10 +12,12 @@ out/
 *Copia*
 *_old*
 *_new*
+ltspice/*.txt
 
 desktop.ini
 *.zip
 *.patch
+*_nogit*
 
 # File di sviluppo locale
 *.pyc
