@@ -39,10 +39,11 @@ C  Collectors and output (C15, D3-A): one linear WDF, root RTypeAdaptor at the
    wiper W of VR9 with three branches:
      VR9U + ((L1 + Rser) || C30 || R53 with Ic3)    TR3 collector
      VR9L + ((L2 + Rser) || R54 with Ic4)           TR4 collector
-     R55 + C31 + RLoad                       output
-   Ic = hFE*Ib (total, D2-A): the envelope current through L1/L2 (the "thump"
-   and the L1-C30 ring at 3.56 kHz) and the noise are both in it. The +12 V
-   rails are AC ground (collector voltages are deviations from +12 V).
+     R55 + C31 + RLoad                              output
+   Ic = hFE*Ib (total, D2-A; hFE from the BC547B card, D7): the envelope
+   current through L1/L2 (the "thump" and the L1-C30 ring at 3.56 kHz) and
+   the noise are both in it. The +12 V rails are AC ground (collector
+   voltages are deviations from +12 V).
    L1, L2: 100 mH with the series resistance of the .asc (D5, P4; Coilcraft
    PCH-45X-107: Rser = 61.662 Ohm). The Rpar = 9.42 MOhm of the same
    inductor model is left out: across the collector node it is in parallel
@@ -270,7 +271,12 @@ class NoiseVoices:
     R51, R52 = 1e6, 1e6
     C28, C29 = 4.7e-9, 4.7e-9
     VR8U = _VR8U
-    hFE, Vt = 200.0, 26e-3
+    # hFE (D7, P4): Ic(Vbe) = hFE*Is_b*exp(Vbe/Vt) equals the collector law
+    # of the LTspice BC547B card, IS*exp(Vbe/(NF*VT_27C)), IS = 2.39e-14 A,
+    # NF = 1.008, at Vbe = 0.62 V (within 1 % from 0.55 to 0.65 V); the base
+    # law (Is_b, Vt) is unchanged. Early effect left out. Until P4: 200
+    # (collector currents 1.61 times lower than LTspice, -4.1 dB).
+    hFE, Vt = 322.0, 26e-3
     Is_b3 = 7.035e-17       # [A] TR3 base (BC108B; IS/BF order of the BC547B card)
     Is_b4 = 7.035e-17       # [A] TR4 base, calibrated: V_ENV ~ 620 mV with LC (LTspice)
     R_PI_MIN, R_PI_MAX = 500.0, 10e6

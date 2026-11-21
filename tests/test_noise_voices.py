@@ -39,6 +39,10 @@ from _nv_common import ref, run_model, edge_mask, max_err  # noqa: E402
 from pe78.noise import noise_amp  # noqa: E402
 
 FS = 96000
+# D7 (P4): collector currents x 322/200; the model-reference error of the
+# collectors and of the output stays at 1.1-1.4 % of their peak (one-sample
+# couplings), so their tolerances scale by the same factor.
+K_HFE = 322.0 / 200.0
 
 
 def test_snare_without_noise():
@@ -46,7 +50,7 @@ def test_snare_without_noise():
     t, o, _ = run_model(g, 0.15, FS)
     tr, r = ref.simulate(g, 0.15)
     err = max_err(t, o, tr, r, ("o", "c3", "b3", "env"), edge_mask(t, g))
-    for k, tol in (("o", 1.5e-4), ("c3", 8e-4), ("b3", 2e-3), ("env", 8e-4)):
+    for k, tol in (("o", 1.5e-4 * K_HFE), ("c3", 8e-4 * K_HFE), ("b3", 2e-3), ("env", 8e-4)):
         assert err[k] < tol, (k, err[k])
     for k in ("env",):                                   # crosstalk into ENV
         assert abs(o[k].max() - r[k].max()) < 2e-3, (o[k].max(), r[k].max())
@@ -61,7 +65,7 @@ def test_snare_on_cymbal_without_noise():
     t, o, _ = run_model(g, 0.32, FS)
     tr, r = ref.simulate(g, 0.32)
     err = max_err(t, o, tr, r, ("o", "c3", "c4", "env"), edge_mask(t, g))
-    for k, tol in (("o", 2e-4), ("c3", 1.2e-3), ("c4", 8e-4), ("env", 1e-3)):
+    for k, tol in (("o", 2e-4 * K_HFE), ("c3", 1.2e-3 * K_HFE), ("c4", 8e-4 * K_HFE), ("env", 1e-3)):
         assert err[k] < tol, (k, err[k])
 
 

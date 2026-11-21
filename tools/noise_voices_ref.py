@@ -15,7 +15,7 @@ Rser = 61.662 Ohm, Ic = hFE*Ib),
 VR9U/VR9L with the common wiper W, R55, C31, RLoad (output O).
 +12 V rails are AC ground: collector nodes and N are deviations from +12 V.
 Models as pe78/noise_voices.py: 1N4148 LTspice standard.dio, TR5 BC547B card
-(forward active), TR3/TR4 base Is_b = 7.035e-17 A, Vt = 26 mV, hFE = 200.
+(forward active), TR3/TR4 base Is_b = 7.035e-17 A, Vt = 26 mV, hFE = 322.
 
 Noise: B1 current per model sample (noise_amp(fs)*sample), first-order hold
 between samples (the trapezoidal WDF sees the samples the same way). Compare
@@ -32,7 +32,7 @@ import numpy as np
 VT = 25.852e-3
 D_IS, D_N = 2.52e-9, 1.752
 T5_IS, T5_NF, T5_BF = 2.39e-14, 1.008, 294.3
-IS_B, VTB, HFE = 7.035e-17, 26e-3, 200.0
+IS_B, VTB, HFE = 7.035e-17, 26e-3, 322.0    # hFE: pe78/noise_voices.py (D7)
 V_ON, R_ON, R_OFF = 4.85, 350.0, 1e12     # pe78/m253.py (D11)
 L_RSER = 61.662                           # series resistance of L1, L2 (.asc; D5)
 
