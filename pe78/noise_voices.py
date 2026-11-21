@@ -37,12 +37,18 @@ B  Bases (C15): nodes B3 (TR3 base), N (noise node), ENV (TR4 base).
    through the Shockley laws (no small-signal model: C10).
 C  Collectors and output (C15, D3-A): one linear WDF, root RTypeAdaptor at the
    wiper W of VR9 with three branches:
-     VR9U + (L1 || C30 || R53 with Ic3)      TR3 collector
-     VR9L + (L2 || R54 with Ic4)             TR4 collector
+     VR9U + ((L1 + Rser) || C30 || R53 with Ic3)    TR3 collector
+     VR9L + ((L2 + Rser) || R54 with Ic4)           TR4 collector
      R55 + C31 + RLoad                       output
    Ic = hFE*Ib (total, D2-A): the envelope current through L1/L2 (the "thump"
    and the L1-C30 ring at 3.56 kHz) and the noise are both in it. The +12 V
    rails are AC ground (collector voltages are deviations from +12 V).
+   L1, L2: 100 mH with the series resistance of the .asc (D5, P4; Coilcraft
+   PCH-45X-107: Rser = 61.662 Ohm). The Rpar = 9.42 MOhm of the same
+   inductor model is left out: across the collector node it is in parallel
+   with R53 (R54) = 4.7 kOhm and changes that load by 0.05 % (-0.004 dB).
+   Rser carries the envelope current (about 1 mA): its drop follows the
+   envelope and is most of the low-frequency "thump" of LTspice.
 
 Coupling: A -> B through V_C27 (same sample), B -> A through V_base_TR3
 (one sample, measured 3e-4 V on V_C27, C6); M <-> ENV one sample (C9).
@@ -280,6 +286,7 @@ class NoiseVoices:
     Vcc = 12.0
     L1, R53, C30 = 100e-3, 4700.0, 0.02e-6
     L2, R54 = 100e-3, 4700.0
+    L_RSER = 61.662         # [Ohm] series resistance of L1, L2 (.asc); Rpar left out (D5)
     VR9 = 220e3             # [Ohm] balance pot, linear (user)
     VR9_POS_DEFAULT = 25e3 / 220e3
     R55, C31, Rload = 22e3, 0.1e-6, 10e3
@@ -380,7 +387,7 @@ class NoiseVoices:
         self._tr4_src.set_voltage(-ic4 * self.R54)
         self._root_c.compute()
         self._V_col3 = self._c30.wave_to_voltage()
-        self._V_col4 = self._l2.wave_to_voltage()
+        self._V_col4 = self._tr4_src.wave_to_voltage()     # node c4 (L2 + Rser in series)
         # RLoad sits inside two series adaptors: its port voltage is the
         # opposite of the physical O node voltage (checked against
         # tools/noise_voices_ref.py).
@@ -446,16 +453,19 @@ class NoiseVoices:
         """Collectors, VR9, R55, C31, RLoad: one linear WDF rooted at the wiper W."""
         self._tr3_src = ResistiveVoltageSource(self.R53)    # Ic3 || R53
         self._l1 = Inductor(self.L1, self.fs)
+        self._rs1 = Resistor(self.L_RSER)
         self._c30 = Capacitor(self.C30, self.fs)
         self._tr4_src = ResistiveVoltageSource(self.R54)    # Ic4 || R54
         self._l2 = Inductor(self.L2, self.fs)
+        self._rs2 = Resistor(self.L_RSER)
         self._vr9u = Resistor(max(self.vr9_pos * self.VR9, 1.0))
         self._vr9l = Resistor(max((1.0 - self.vr9_pos) * self.VR9, 1.0))
         self._r55 = Resistor(self.R55)
         self._c31 = Capacitor(self.C31, self.fs)
         self._rload = Resistor(self.Rload)
-        col3 = ParallelAdaptor(ParallelAdaptor(self._tr3_src, self._l1), self._c30)
-        col4 = ParallelAdaptor(self._tr4_src, self._l2)
+        col3 = ParallelAdaptor(ParallelAdaptor(self._tr3_src, SeriesAdaptor(self._l1, self._rs1)),
+                               self._c30)
+        col4 = ParallelAdaptor(self._tr4_src, SeriesAdaptor(self._l2, self._rs2))
         br3 = SeriesAdaptor(self._vr9u, col3)
         br4 = SeriesAdaptor(self._vr9l, col4)
         brout = SeriesAdaptor(self._r55, SeriesAdaptor(self._c31, self._rload))

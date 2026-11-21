@@ -10,7 +10,8 @@ Snare front end (M253 pin 5: 4.85 V / 350 Ohm, open when off, as
 pe78/m253.py; C22, R48, D6, R21, TR5, D7, R49, C27, R50), TR3 base (R51, Shockley), noise node N (VR8U to
 +12 V, B1 current, C28 to the TR3 base, C29 to the TR4 base), ENV (R52, TR4
 base Shockley, LC: C23 + R47, SC: R42 + C24 + R44, maracas: R43, C25, D8,
-D9, R45, C26, R46), collectors (L1 || R53 || C30, L2 || R54, Ic = hFE*Ib),
+D9, R45, C26, R46), collectors ((L1 + Rser) || R53 || C30, (L2 + Rser) || R54,
+Rser = 61.662 Ohm, Ic = hFE*Ib),
 VR9U/VR9L with the common wiper W, R55, C31, RLoad (output O).
 +12 V rails are AC ground: collector nodes and N are deviations from +12 V.
 Models as pe78/noise_voices.py: 1N4148 LTspice standard.dio, TR5 BC547B card
@@ -33,6 +34,7 @@ D_IS, D_N = 2.52e-9, 1.752
 T5_IS, T5_NF, T5_BF = 2.39e-14, 1.008, 294.3
 IS_B, VTB, HFE = 7.035e-17, 26e-3, 200.0
 V_ON, R_ON, R_OFF = 4.85, 350.0, 1e12     # pe78/m253.py (D11)
+L_RSER = 61.662                           # series resistance of L1, L2 (.asc; D5)
 
 
 def lexp(x, xm=80.0):
@@ -48,7 +50,7 @@ class NoiseVoicesRef:
         vr9u, vr9l = max(vr9_pos * vr9, 1.0), max((1 - vr9_pos) * vr9, 1.0)
         self.dt = dt
         names = ["v1", "vb5", "ve5", "vd7", "c27", "h", "b3", "n", "env", "lc", "sc", "ssc",
-                 "s", "a", "k", "mr", "c3", "c4", "w", "x31", "o"]
+                 "s", "a", "k", "mr", "c3", "c4", "w", "x31", "o", "l3", "l4"]
         self.ix = {nm: i for i, nm in enumerate(names)}
         self.N = len(names)
         self.R = [("vb5", None, 22e3), ("h", None, 12e3), ("vd7", "c27", 2200.0),
@@ -61,7 +63,8 @@ class NoiseVoicesRef:
         self.C = [("v1", "vb5", 0.1e-6), ("c27", None, 0.05e-6), ("b3", "n", 4.7e-9),
                   ("lc", None, 0.33e-6), ("sc", None, 68e-9), ("s", "a", 0.22e-6), ("mr", None, 0.1e-6),
                   ("c3", None, 0.02e-6)]
-        self.L = [("c3", None, 0.1), ("c4", None, 0.1)]
+        self.L = [("c3", "l3", 0.1), ("c4", "l4", 0.1)]
+        self.R += [("l3", None, L_RSER), ("l4", None, L_RSER)]
         self.C.append(("n", "env", 4.7e-9))
         self.R += [("c3", "w", vr9u), ("c4", "w", vr9l), ("w", "x31", 22e3)]
         self.C.append(("x31", "o", 0.1e-6))

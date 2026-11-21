@@ -9,8 +9,8 @@ the tonal section (five R41 joined, C21) drive the same node O, the pre-amp
 input VR10 = RLOAD. TonalDrum and NoiseVoices terminate on RLOAD alone;
 drums.bus_load_gains() (decision D1-B) corrects each output with a fixed
 mid-band gain. This test compares those gains with the nodal AC solution of
-the whole bus (C21, C31, L1 || R53 || C30, L2 || R54, VR9), for both sources
-and three VR9 positions:
+the whole bus (C21, C31, (L1 + Rser) || R53 || C30, (L2 + Rser) || R54,
+VR9), for both sources and three VR9 positions:
   - 200 Hz to 5 kHz: within 0.06 dB;
   - 50 Hz: within 0.6 dB (C21 / C31 corners).
 
@@ -45,8 +45,8 @@ def _v_o(f, pos, src, tonal_branch, noise_branch):
             Y[q, q] += v
             Y[p, q] -= v
             Y[q, p] -= v
-    y(0, None, 1 / nv.R53 + 1 / (s * nv.L1) + s * nv.C30)
-    y(1, None, 1 / nv.R54 + 1 / (s * nv.L2))
+    y(0, None, 1 / nv.R53 + 1 / (s * nv.L1 + nv.L_RSER) + s * nv.C30)
+    y(1, None, 1 / nv.R54 + 1 / (s * nv.L2 + nv.L_RSER))
     y(0, 2, 1 / u)
     y(1, 2, 1 / l)
     y(4, None, 1 / TonalDrum.RLOAD)
