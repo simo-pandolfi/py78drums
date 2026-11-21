@@ -13,13 +13,13 @@ on R13 behind another 27 kOhm (R13 counted twice, no coupling back); R14 was
 shorted by a 1 mOhm source. In Fig. 7 the cathode of D2 is on the C6/C7/R16
 node: since C13 the detector and the twin-T are one circuit (TwinTDrum) with
 D2 and the gate at one Newton root; the M253 output is the switched source of
-noise_voices.py (on: V behind 350 Ohm, off: 0 V behind 10 MOhm).
+pe78/m253.py (on: V_ON behind 350 Ohm, off: open; 10 MOhm before D11).
 
 1. D2 law: N = 1.752, drops at 0.01/0.1/1 mA (+-10 mV); at every sample of a
    hit the D2 port current equals the Shockley law of its port voltage.
 2. Topology: R13 is one leaf (27 kOhm) between t2 and the anode of D2; D2 is
    the port anode-n1; R14 is a leaf on t1; the M253 leaf switches between
-   350 Ohm and 10 MOhm.
+   R_ON and R_OFF.
 3. Whole voice against tools/tonal_voice_ref.py (nodal, trapezoidal, Newton
    on all nodes) at the same sample rate: V_n3 within 1e-8 V and the D2
    current within 1e-12 A, for BD (VR4 150 and 470 kOhm, 10 and 100 ms gates,

@@ -14,7 +14,8 @@ they are one circuit and are modelled as one object (C15).
     NoiseVoices(fs, vr9_pos=None)
     out = nv.tick(v_sd, v_lc, v_sc, v_mr, noise=None)
 
-Inputs are the M253 trigger outputs (0 V idle, 4.5 V active); noise is a
+Inputs are the M253 trigger outputs as gates (above 0.5 V: on; the level is
+pe78/m253.py, D11); noise is a
 unit-variance sample (None: an internal N(0,1) sample). The output is the
 voltage on RLoad (10 kOhm, the pre-amp input VR10; the tonal voices on the
 same bus come with C16).
@@ -59,6 +60,7 @@ import numpy as np
 import pywdf.core.wdf as _wdf
 import pywdf.core.rtype as _rtype
 
+from pe78 import m253
 from pe78.noise import noise_amp, VR8U as _VR8U
 from pe78.wdf_nlroot import RTypeNLRoot, diode_law, lexp
 
@@ -256,7 +258,7 @@ class NoiseVoices:
         _V_out                   output on RLoad [V]
     """
 
-    V_ON, R_ON, R_OFF = 4.5, 350.0, 10e6      # M253 outputs
+    V_ON, R_ON, R_OFF = m253.V_ON, m253.R_ON, m253.R_OFF     # M253 outputs (D11)
 
     # Bases
     R51, R52 = 1e6, 1e6

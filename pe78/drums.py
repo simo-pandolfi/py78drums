@@ -133,7 +133,8 @@ class TonalDrum(BaseWDFDrum):
         Parameters
         ----------
         v_trigger : float
-            M253 output: 4.5 V = on (behind 350 Ohm), 0 V = off (10 MOhm).
+            M253 gate: above 0.5 V = on (pe78/m253.py: 4.85 V behind
+            350 Ohm), otherwise off (open).
         noise_sample : float
             Unused; present for interface uniformity.
         line : (float, float) or None

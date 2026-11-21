@@ -8,7 +8,8 @@ every step (no WDF, no R-type junction).
 
 Nodes: n0 (R11-R12, C5), n1 (C6-C7, R16, cathode of D2), n2 (gate input),
 n3 (gate output, R41 to GND), t1 (M253 output, R14), t2 (C8-R15-R13),
-a (anode of D2). M253 output 350 Ohm on / 10 MOhm off, D2 1N4148 LTspice
+a (anode of D2). M253 output V_ON behind 350 Ohm on / open off (pe78/m253.py; the
+trigger is a gate), D2 1N4148 LTspice
 standard.dio (Is 2.52 nA, N 1.752, Vt 25.852 mV), CD4011A gate law of
 pe78/twint.py (CD4011AGate, checked on its own in tests/test_cd4011.py).
 Start at the DC operating point of the model.
@@ -69,7 +70,7 @@ class TonalVoiceRef:
         G = self.G.copy()
         G[T1, T1] += g_s
         rhs = np.zeros(7)
-        rhs[T1] += (v_trigger if on else 0.0) * g_s
+        rhs[T1] += (TwinTDrum.V_ON if on else 0.0) * g_s
         hist = []
         for (p, q, c), u, i in zip(self.C, self.uc, self.ic):
             h = 2.0 * c / self.dt * u + i                 # i_c = gc*u - h

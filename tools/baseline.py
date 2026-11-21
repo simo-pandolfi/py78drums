@@ -13,7 +13,8 @@ any pywdf installed with pip; the path actually imported is printed.
 
 Conditions follow bench/: tonal voices 48 kHz, 5 V trigger (wdf_twint_test.py);
 snare 48 kHz, 4.5 V trigger from sample 10 (wdf_snare_test.py); cymbals 96 kHz,
-20 ms pulses at 50/550/1050 ms (wdf_cymb_test.py). Added: 100 ms gates, VR4 and
+20 ms pulses at 50/550/1050 ms (wdf_cymb_test.py). From D11 the triggers
+are gates: the M253 level is pe78/m253.py. Added: 100 ms gates, VR4 and
 VR9 sweeps. From C15 snare and cymbal cases run NoiseVoices (the other inputs
 at 0 V, same names and keys as before) and noise_lc_sd adds a snare hit at
 0.25 s on a ringing long cymbal. Outputs are not normalised. Noise is seeded and passed explicitly,

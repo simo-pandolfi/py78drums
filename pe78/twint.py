@@ -39,8 +39,10 @@ Physical topology — 7 nodes, 13 linear WDF leaves, 3 nonlinear ports:
 
   Output:     [NAND_OUT]──[R41]──[instrument bus]
 
-M253 output: switched source as in noise_voices.py, on: V_trigger behind
-350 Ohm, off: 0 V behind 10 MOhm (user: equivalent to D1-D4 of the .asc).
+M253 output: switched source of pe78/m253.py (D11), as in noise_voices.py:
+on: V_ON = 4.85 V behind 350 Ohm, off: open (D1-D4 of the .asc). The
+trigger input is a gate (above 0.5 V: on); until P4 its level was the
+source voltage, with 10 MOhm off.
 D2 1N4148: LTspice standard.dio, Is = 2.52 nA, N = 1.752 (C14; drop
 0.38/0.48/0.58 V at 0.01/0.1/1 mA). D2 conducts on the rising edge of the
 trigger and whenever n1 swings below t2 minus about one diode drop: the
@@ -105,6 +107,7 @@ import numpy as np
 import pywdf.core.wdf as wdf
 from scipy.optimize import brentq
 
+from pe78 import m253
 from pe78.wdf_nlroot import RTypeNLRoot, diode_law
 
 
@@ -225,8 +228,8 @@ class TwinTDrum:
 
     # Fixed feedback resistor R10, in series with VR4 (AC feedback; see module docstring)
     R10 = 150e3     # [Ohm]
-    # M253 output (as noise_voices.NoiseVoices)
-    R_ON, R_OFF = 350.0, 10e6           # [Ohm]
+    # M253 output (pe78/m253.py, as noise_voices.NoiseVoices)
+    V_ON, R_ON, R_OFF = m253.V_ON, m253.R_ON, m253.R_OFF
     # D2 1N4148, LTspice standard.dio (same constants as noise_voices.py)
     D_IS   = 2.52e-9      # [A]  saturation current
     D_N    = 1.752        # [-]  emission coefficient
@@ -337,8 +340,8 @@ class TwinTDrum:
         Parameters
         ----------
         v_trigger : float
-            M253 output: above 0.5 V the output is on (v_trigger behind
-            350 Ohm), otherwise off (0 V behind 10 MOhm).
+            M253 gate: above 0.5 V the output is on (V_ON behind R_ON),
+            otherwise off (0 V behind R_OFF, open): pe78/m253.py.
         line : (float, float) or None
             Only with d6=True: (v1_oc, r_th1) of the snare front end, i.e.
             NoiseVoices.hb_line() after its tick of the same sample. None:
@@ -355,7 +358,7 @@ class TwinTDrum:
         if on != self._on:
             self.m253.set_resistance(self.R_ON if on else self.R_OFF)
             self._on = on
-        self.m253.set_voltage(v_trigger if on else 0.0)
+        self.m253.set_voltage(self.V_ON if on else 0.0)
         if self.d6:
             v_oc, r_th = (0.0, self.R_LINE_IDLE) if line is None else line
             self.v1src.set_resistance(r_th)

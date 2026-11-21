@@ -8,7 +8,7 @@ Reference for the HB line (C13): the noise voices of Fig. 6
 all nodes at every step.
 
 The HB trigger line is node h of the noise reference: M253 pin 6 (350 Ohm on
-/ 10 MOhm off), D6 from the snare's pin 5 node v1, R21 = the R14 of the HB
+/ open off, pe78/m253.py), D6 from the snare's pin 5 node v1, R21 = the R14 of the HB
 edge detector (user, 2026-11-20, counted once), and the rest of the HB voice:
 C8 (h-t2), R15, R13, D2 (on the C6/C7 node), twin-T, CD4011A gate (law of
 pe78/twint.py), R41 to GND. The HB voice starts at its DC operating point.

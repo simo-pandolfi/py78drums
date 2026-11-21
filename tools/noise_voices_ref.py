@@ -6,8 +6,8 @@ Reference for the noise voices (pe78/noise_voices.py, C15): the whole Fig. 6
 section in one modified nodal analysis, trapezoidal rule, small step, Newton
 on all nodes at every step (no WDF, no one-sample couplings).
 
-Snare front end (M253 pin 5 4.5 V / 350 Ohm / 10 MOhm off, C22, R48, D6, R21,
-TR5, D7, R49, C27, R50), TR3 base (R51, Shockley), noise node N (VR8U to
+Snare front end (M253 pin 5: 4.85 V / 350 Ohm, open when off, as
+pe78/m253.py; C22, R48, D6, R21, TR5, D7, R49, C27, R50), TR3 base (R51, Shockley), noise node N (VR8U to
 +12 V, B1 current, C28 to the TR3 base, C29 to the TR4 base), ENV (R52, TR4
 base Shockley, LC: C23 + R47, SC: R42 + C24 + R44, maracas: R43, C25, D8,
 D9, R45, C26, R46), collectors (L1 || R53 || C30, L2 || R54, Ic = hFE*Ib),
@@ -32,7 +32,7 @@ VT = 25.852e-3
 D_IS, D_N = 2.52e-9, 1.752
 T5_IS, T5_NF, T5_BF = 2.39e-14, 1.008, 294.3
 IS_B, VTB, HFE = 7.035e-17, 26e-3, 200.0
-V_ON, R_ON, R_OFF = 4.5, 350.0, 10e6
+V_ON, R_ON, R_OFF = 4.85, 350.0, 1e12     # pe78/m253.py (D11)
 
 
 def lexp(x, xm=80.0):
