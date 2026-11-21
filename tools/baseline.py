@@ -5,10 +5,11 @@
 P0 baseline: raw renders of every pe78 voice with a chosen pywdf.
 
 Usage (from the py78drums root):
-    python tools/baseline.py --pywdf <pywdf root> --out <file.npz>
+    python tools/baseline.py [--pywdf <pywdf root>] --out <file.npz>
 
 <pywdf root> is the folder that contains the `pywdf` package (for pywdf-ref:
-the repository root). It is put first on sys.path, so it takes precedence over
+the repository root; default: the PYWDF_ROOT environment variable, the rule of
+pe78/__init__.py). It is put first on sys.path, so it takes precedence over
 any pywdf installed with pip; the path actually imported is printed.
 
 Conditions follow bench/: tonal voices 48 kHz, 5 V trigger (wdf_twint_test.py);
@@ -38,7 +39,8 @@ import numpy as np
 def parse_args():
     here = os.path.dirname(os.path.abspath(__file__))
     p = argparse.ArgumentParser(description=__doc__.splitlines()[1])
-    p.add_argument("--pywdf", required=True, help="folder that contains the pywdf package")
+    p.add_argument("--pywdf", default=os.environ.get("PYWDF_ROOT"),
+                   help="folder that contains the pywdf package (default: PYWDF_ROOT)")
     p.add_argument("--out", required=True, help="output .npz file")
     p.add_argument("--repo", default=os.path.dirname(here), help="py78drums root (default: parent of tools/)")
     p.add_argument("--seed", type=int, default=42)
@@ -175,6 +177,9 @@ def run_cymb(drums, cfg, fs, n, noise):
 # -----------------------------------------------------------------------------
 def main():
     a = parse_args()
+    if not a.pywdf:
+        sys.exit("error: give --pywdf or set PYWDF_ROOT")
+    os.environ["PYWDF_ROOT"] = os.path.abspath(a.pywdf)     # read by pe78/__init__.py
     sys.path.insert(0, os.path.abspath(a.repo))
     sys.path.insert(0, os.path.abspath(a.pywdf))
     import pywdf

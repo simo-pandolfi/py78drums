@@ -49,7 +49,7 @@ Diagnostics (not the model; used to weigh the calibration options):
                            at start)
 
 Usage (from the py78drums root):
-    python tools/ltspice_compare.py --pywdf <pywdf root> --ltdir <folder>
+    python tools/ltspice_compare.py [--pywdf <pywdf root>] --ltdir <folder>
         [--seeds 4] [--fs 96000] [--m253 4.85,350,1e12] [--post 61.662,1.61]
         [--out report.json]
 """
@@ -85,7 +85,8 @@ THIRD = 1000 * 2.0 ** (np.arange(-16, 14) / 3)       # 25 Hz ... 20 kHz
 def parse_args():
     here = os.path.dirname(os.path.abspath(__file__))
     p = argparse.ArgumentParser(description=__doc__.splitlines()[1])
-    p.add_argument("--pywdf", required=True, help="folder that contains the pywdf package")
+    p.add_argument("--pywdf", default=os.environ.get("PYWDF_ROOT"),
+                   help="folder that contains the pywdf package (default: PYWDF_ROOT)")
     p.add_argument("--repo", default=os.path.dirname(here))
     p.add_argument("--ltdir", required=True)
     p.add_argument("--fs", type=int, default=96000)
@@ -274,6 +275,9 @@ def out_table(title, t, ref, y):
 # -----------------------------------------------------------------------------
 def main():
     a = parse_args()
+    if not a.pywdf:
+        sys.exit("error: give --pywdf or set PYWDF_ROOT")
+    os.environ["PYWDF_ROOT"] = os.path.abspath(a.pywdf)     # read by pe78/__init__.py
     sys.path.insert(0, os.path.abspath(a.pywdf))
     sys.path.insert(0, os.path.abspath(a.repo))
     import pywdf

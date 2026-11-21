@@ -37,8 +37,6 @@ import numpy as np
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
-if os.environ.get("PYWDF_ROOT"):
-    sys.path.insert(0, os.path.abspath(os.environ["PYWDF_ROOT"]))
 
 from pe78 import drums   # noqa: E402
 

@@ -11,8 +11,6 @@ import numpy as np
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
 sys.path.insert(0, os.path.join(ROOT, "tools"))
-if os.environ.get("PYWDF_ROOT"):
-    sys.path.insert(0, os.path.abspath(os.environ["PYWDF_ROOT"]))
 
 from pe78.noise_voices import NoiseVoices  # noqa: E402
 import noise_voices_ref as ref  # noqa: E402

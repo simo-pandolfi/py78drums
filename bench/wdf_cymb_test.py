@@ -115,7 +115,7 @@ def print_analysis(res):
     print(f'  LC  τ = R47×C23  = {drum.R47 * drum.C23 * 1000:.0f} ms')
     print(f'  SC  τ = R44×C24  = {drum.R44 * drum.C24 * 1000:.0f} ms')
     print(f'  MR  τ = R46×C26  = {drum.R46 * drum.C26 * 1000:.0f} ms')
-    print(f'  L2||R54 pole at  = {drum.R54 / (2 * np.pi * drum.L2):.0f} Hz')
+    print(f'  (L2+Rser)||R54 pole at = {(drum.R54 + drum.L_RSER) / (2 * np.pi * drum.L2):.0f} Hz')
 
     # C29 pole with r_pi calculated via Ebers-Moll at V_env = 0.7 V (typical point)
     V_typ    = 0.7

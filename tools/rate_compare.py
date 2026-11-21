@@ -13,7 +13,7 @@ the largest difference of the 1/3-octave band levels from 25 Hz to 20 kHz
 sequences per rate): band levels only (Welch PSD).
 
 Usage (from the py78drums root):
-    python tools/rate_compare.py --pywdf <pywdf root> [--out report.json] [--only tonal|noise]
+    python tools/rate_compare.py [--pywdf <pywdf root>] [--out report.json] [--only tonal|noise]
 """
 
 import argparse
@@ -32,7 +32,8 @@ REF = 192000
 def parse_args():
     here = os.path.dirname(os.path.abspath(__file__))
     p = argparse.ArgumentParser(description=__doc__.splitlines()[1])
-    p.add_argument("--pywdf", required=True)
+    p.add_argument("--pywdf", default=os.environ.get("PYWDF_ROOT"),
+                   help="folder that contains the pywdf package (default: PYWDF_ROOT)")
     p.add_argument("--repo", default=os.path.dirname(here))
     p.add_argument("--out", default=None)
     p.add_argument("--only", choices=("tonal", "noise"), default=None)
@@ -144,6 +145,9 @@ def wave_error(x, fs, ref):
 
 def main():
     a = parse_args()
+    if not a.pywdf:
+        sys.exit("error: give --pywdf or set PYWDF_ROOT")
+    os.environ["PYWDF_ROOT"] = os.path.abspath(a.pywdf)     # read by pe78/__init__.py
     sys.path.insert(0, os.path.abspath(a.pywdf))
     sys.path.insert(0, os.path.abspath(a.repo))
     from pe78 import drums

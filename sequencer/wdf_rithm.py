@@ -142,7 +142,8 @@ def synthesize(rhythm_name, bpm=BPM_DEFAULT, num_bars=2,
         step_idx = (i // step_samples) % pattern_steps
         pos_in_step = i % step_samples
         
-        # Trigger pulse generation (4.5V during the first hit_samples)
+        # Trigger gate during the first hit_samples (any level above 0.5 V;
+        # the M253 output level is pe78/m253.py)
         in_trig = pos_in_step < hit_samples
         trig_v = 4.5 if in_trig else 0.0
 
