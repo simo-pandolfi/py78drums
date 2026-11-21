@@ -38,7 +38,6 @@ import numpy as np
 from scipy.io import wavfile
 from patterns import PATTERNS
 
-# pe78_fast is not used until it is realigned with pe78/ (it reverts C1).
 from pe78.drums import (TonalDrum, NoiseVoices, bus_load_gains,
     BDO_PARAMS, CONGA_PARAMS, HBONGO_PARAMS, LBONGO_PARAMS, CLAVES_PARAMS)
 

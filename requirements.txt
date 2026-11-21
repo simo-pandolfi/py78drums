@@ -1,5 +1,4 @@
 numpy
-numba
 scipy
 soundfile
 pywdf @ git+https://github.com/simo-pandolfi/pywdf-ref.git@7cdf940564e70ab1ed2eb18c04985fb266721306
