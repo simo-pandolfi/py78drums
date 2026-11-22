@@ -27,10 +27,16 @@ Notes on original PE 1978 wiring:
   
   OUT3 of the M253 drives Claves (Latin style) or Snare Drum 
   (Rock style) depending on the style of the selected rhythm.
+
+Stems (P4, V1): next to the WAV, every render saves the raw output of each
+voice (before GAIN and the bus load gains) in out/stems/<name>.npz;
+sequencer/mix.py re-mixes them with other GAIN values in a fraction of a
+second. The mix is linear, so mix.py with the GAIN below gives the same WAV.
+Usage: python wdf_rithm.py <number> [bpm] [bars]  (bars: pattern cycles,
+default 2).
 """
 
 import sys, os
-print('\n'.join(sys.path))
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
@@ -63,6 +69,42 @@ GAIN = {
 }
 
 
+# Order of the voices on the master bus (also the order of the sums)
+VOICES = ('bd', 'cl', 'lb', 'cd', 'noise', 'hb')
+STEMS_DIR = os.path.normpath(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'out', 'stems'))
+
+
+def mix(stems, gain, g_tonal, g_noise):
+    """Master bus from the raw voice outputs: sum of stem * GAIN * bus load
+    gain in the order of VOICES, then normalized to a peak of 0.5. Returns
+    (master, peak before normalization)."""
+    n = len(next(iter(stems.values())))
+    master = np.zeros(n)
+    for k in VOICES:
+        if k in stems:
+            master += stems[k] * gain[k] * (g_noise if k == 'noise' else g_tonal)
+    peak = np.max(np.abs(master))
+    if peak > 1e-9:
+        master = (master / peak) * 0.5
+    else:
+        print("[WARNING] Silent master bus — check instruments.\n")
+    return master, peak
+
+
+def save_stems(path, stems, **meta):
+    os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
+    np.savez(path, **{f"stem_{k}": v for k, v in stems.items()},
+             **{f"meta_{k}": np.asarray(v) for k, v in meta.items()})
+    print(f"Saved stems: {os.path.normpath(path)}")
+
+
+def load_stems(path):
+    d = np.load(path)
+    stems = {k[5:]: d[k] for k in d.files if k.startswith("stem_")}
+    meta = {k[5:]: d[k].item() if d[k].ndim == 0 else d[k] for k in d.files if k.startswith("meta_")}
+    return stems, meta
+
+
 # ---------------------------------------------------------------------------
 # Noise voices
 # ---------------------------------------------------------------------------
@@ -77,10 +119,12 @@ GAIN = {
 
 
 def synthesize(rhythm_name, bpm=BPM_DEFAULT, num_bars=2,
-               latin_mode=None, fs=FS):
+               latin_mode=None, fs=FS, return_stems=False):
     """
     Synthesizes the rhythm by calculating every single sample for all instruments,
     exactly as it would happen in a real-time audio engine in Rust.
+    return_stems: also return the raw voice outputs and the bus load gains,
+    (master, stems, g_tonal, g_noise).
     """
     if rhythm_name not in PATTERNS:
         raise ValueError(
@@ -98,7 +142,7 @@ def synthesize(rhythm_name, bpm=BPM_DEFAULT, num_bars=2,
     pattern_steps = pattern.get('steps', STEPS)
     total_samples = step_samples * pattern_steps * num_bars
     hit_samples   = int(round(HIT_S * fs))
-    master        = np.zeros(total_samples)
+    stems         = {}
 
 
     # --- 1. Instrument Initialization (WDF Trees) ---
@@ -122,6 +166,10 @@ def synthesize(rhythm_name, bpm=BPM_DEFAULT, num_bars=2,
     # Mutual load of the tonal and noise sections on the output bus (C16,
     # D1-B): both branches are always connected in the circuit.
     G_NOISE, G_TONAL = bus_load_gains(NoiseVoices.VR9_POS_DEFAULT)
+    for k in inst_models:
+        stems[k] = np.zeros(total_samples)
+    if has_noise:
+        stems['noise'] = np.zeros(total_samples)
 
     # --- 2. Sequence Extraction for convenience ---
     seq_bd = pattern.get('bd', [0]*STEPS)
@@ -147,25 +195,22 @@ def synthesize(rhythm_name, bpm=BPM_DEFAULT, num_bars=2,
         in_trig = pos_in_step < hit_samples
         trig_v = 4.5 if in_trig else 0.0
 
-        sample_mix = 0.0
-
-        # Process discrete instruments
+        # Process discrete instruments (raw outputs; GAIN in mix())
         if 'bd' in inst_models:
             v = trig_v if seq_bd[step_idx] == 1 else 0.0
-            sample_mix += inst_models['bd'].tick(v) * GAIN['bd'] * G_TONAL
+            stems['bd'][i] = inst_models['bd'].tick(v)
 
         if 'cl' in inst_models:
             v = trig_v if seq_cl[step_idx] == 1 else 0.0
-            sample_mix += inst_models['cl'].tick(v) * GAIN['cl'] * G_TONAL
-
+            stems['cl'][i] = inst_models['cl'].tick(v)
 
         if 'lb' in inst_models:
             v = trig_v if seq_lb[step_idx] == 1 else 0.0
-            sample_mix += inst_models['lb'].tick(v) * GAIN['lb'] * G_TONAL
+            stems['lb'][i] = inst_models['lb'].tick(v)
 
         if 'cd' in inst_models:
             v = trig_v if seq_cd[step_idx] == 1 else 0.0
-            sample_mix += inst_models['cd'].tick(v) * GAIN['cd'] * G_TONAL
+            stems['cd'][i] = inst_models['cd'].tick(v)
 
         # Noise voices: snare, cymbals, maracas (one circuit, one output).
         # Before HB: HB takes the snare's pin 5 node of this sample (C13); the
@@ -177,27 +222,20 @@ def synthesize(rhythm_name, bpm=BPM_DEFAULT, num_bars=2,
             v_sc = trig_v if seq_sc[step_idx] == 1 else 0.0
             v_mr = trig_v if seq_mr[step_idx] == 1 else 0.0
             i_d6 = inst_models['hb'].voice.i_d6 if 'hb' in inst_models else None
-            sample_mix += (noise_model.tick(v_sd, v_lc, v_sc, v_mr, hb_i_d6=i_d6)
-                           * GAIN['noise'] * G_NOISE)
+            stems['noise'][i] = noise_model.tick(v_sd, v_lc, v_sc, v_mr, hb_i_d6=i_d6)
             line = noise_model.hb_line()
 
         if 'hb' in inst_models:
             # HB steps drive pin 6; SD steps reach the HB line through D6
             v = trig_v if seq_hb[step_idx] == 1 else 0.0
-            sample_mix += inst_models['hb'].tick(v, line=line) * GAIN['hb'] * G_TONAL
+            stems['hb'][i] = inst_models['hb'].tick(v, line=line)
 
-        # Write to master bus
-        master[i] = sample_mix
-
-    # --- 4. Final Normalization (-1 dBFS 0.891 or similar) ---
-    peak = np.max(np.abs(master))
-    if peak > 1e-9:
-        master = (master / peak) * 0.5
-    else:
-        print("[WARNING] Silent master bus — check instruments.\n")
-
+    # --- 4. Master bus and normalization (peak 0.5) ---
+    master, peak = mix(stems, GAIN, G_TONAL, G_NOISE)
     print(f"[INFO] Master bus peak: {peak}.\n")
 
+    if return_stems:
+        return master, stems, G_TONAL, G_NOISE
     return master
 
 
@@ -222,7 +260,7 @@ def main():
         print(f"  {i:2d}.  {name:<14}")
     print("   0.  Exit")
     print("="*54)
-    print("  Usage: <number> [bpm] [bars]   e.g.: 3 128 8")
+    print("  Usage: <number> [bpm] [bars]   e.g.: 3 128 4  (bars default 2)")
     print()
 
     if len(sys.argv) > 1:
@@ -245,15 +283,19 @@ def main():
 
     rhythm_name = rhythm_list[idx - 1]
     bpm         = int(parts[1]) if len(parts) > 1 else BPM_DEFAULT
-    num_bars    = int(parts[2]) if len(parts) > 2 else 4
+    num_bars    = int(parts[2]) if len(parts) > 2 else 2
 
     print(f"\nRhythm: {rhythm_name}  |  {bpm} BPM  |  {num_bars} bars")
 
-    audio = synthesize(rhythm_name, bpm=bpm, num_bars=num_bars)
+    audio, stems, g_tonal, g_noise = synthesize(rhythm_name, bpm=bpm, num_bars=num_bars,
+                                                return_stems=True)
 
     slug  = rhythm_name.lower().replace(' ', '_')
     fname = f"pe78_{slug}_{bpm}bpm_{num_bars}bar.wav"
     save_wav(audio, fname)
+    save_stems(os.path.join(STEMS_DIR, fname[:-4] + ".npz"), stems,
+               rhythm=rhythm_name, bpm=bpm, bars=num_bars, fs=FS,
+               g_tonal=g_tonal, g_noise=g_noise, wav=fname)
 
 
 if __name__ == "__main__":
