@@ -238,9 +238,10 @@ def bus_load_gains(vr9_pos=None):
         g_tonal = [ (RL||R_n)/(R_t + RL||R_n) ] / [ RL/(R_t + RL) ]
 
     Default VR9 (80k/140k): g_noise = 0.899 (-0.93 dB), g_tonal = 0.892
-    (-1.00 dB); with the VR9 of the .asc (25k/195k): 0.905, 0.833. Against the nodal AC solution with C21, C31 and the
-    collectors: within 0.06 dB from 200 Hz to 5 kHz, up to 0.6 dB at 50 Hz
-    (tests/test_bus_load.py). TODO (D1-A, to re-evaluate): one bus node O
+    (-1.00 dB); with the VR9 of the .asc (25k/195k): 0.905, 0.833.
+    Against the nodal AC solution with C21, C31 and the collectors, at four
+    VR9 positions (the .asc, the default, 0.5, 0.9): within 0.06 dB from
+    200 Hz to 5 kHz, up to 0.6 dB at 50 Hz (tests/test_bus_load.py). TODO (D1-A, to re-evaluate): one bus node O
     inside the WDF of the noise section, with the tonal branch as a leaf.
     """
     nv = NoiseVoices

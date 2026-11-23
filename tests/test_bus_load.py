@@ -10,7 +10,8 @@ input VR10 = RLOAD. TonalDrum and NoiseVoices terminate on RLOAD alone;
 drums.bus_load_gains() (decision D1-B) corrects each output with a fixed
 mid-band gain. This test compares those gains with the nodal AC solution of
 the whole bus (C21, C31, (L1 + Rser) || R53 || C30, (L2 + Rser) || R54,
-VR9), for both sources and three VR9 positions:
+VR9), for both sources and four VR9 positions (the .asc, the default of
+NoiseVoices, 0.5, 0.9):
   - 200 Hz to 5 kHz: within 0.06 dB;
   - 50 Hz: within 0.6 dB (C21 / C31 corners).
 
@@ -70,8 +71,11 @@ def _db(x):
     return 20 * np.log10(x)
 
 
+POSITIONS = (25 / 220, NoiseVoices.VR9_POS_DEFAULT, 0.5, 0.9)
+
+
 def test_bus_load_gains():
-    for pos in (25 / 220, 0.5, 0.9):
+    for pos in POSITIONS:
         g_noise, g_tonal = bus_load_gains(pos)
         for f, tol in ((50, 0.6), (200, 0.06), (1000, 0.06), (5000, 0.06)):
             for src in ("ic3", "ic4"):
@@ -83,7 +87,7 @@ def test_bus_load_gains():
 
 if __name__ == "__main__":
     test_bus_load_gains()
-    for pos in (25 / 220, 0.5, 0.9):
+    for pos in POSITIONS:
         g = bus_load_gains(pos)
         print(f"VR9 pos {pos:.3f}: g_noise {_db(g[0]):+.2f} dB, g_tonal {_db(g[1]):+.2f} dB")
     print("ok")
