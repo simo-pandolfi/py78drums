@@ -177,7 +177,7 @@ BDO_PARAMS = {
     'edge_c':    150e-9,                         # C8
     'kick_r':    [68000, 68000, 10000],          # R11, R12, R16
     'kick_c':    [150e-9, 47e-9, 47e-9],         # C5, C6, C7
-    'kick_vr4':  150000,                         # VR4 (r_bias = R10+VR4 = 300 kOhm)
+    'kick_vr4':  148000,                         # VR4 (r_bias = R10+VR4 = 300 kOhm)
     'kick_load': 390000,                         # R41 (390 kOhm, Fig. 7)
 }
 
@@ -186,7 +186,7 @@ CONGA_PARAMS = {
     'edge_c':    56e-9,
     'kick_r':    [68000, 68000, 10000],
     'kick_c':    [56e-9, 18e-9, 18e-9],
-    'kick_vr4':  150000,
+    'kick_vr4':  149000,
     'kick_load': 390000,
 }
 
@@ -195,7 +195,7 @@ HBONGO_PARAMS = {
     'edge_c':    33e-9,
     'kick_r':    [68000, 68000, 10000],
     'kick_c':    [33e-9, 10e-9, 10e-9],
-    'kick_vr4':  150000,
+    'kick_vr4':  148000,
     'kick_load': 390000,
 }
 
@@ -204,7 +204,7 @@ LBONGO_PARAMS = {
     'edge_c':    47e-9,
     'kick_r':    [68000, 68000, 10000],
     'kick_c':    [47e-9, 15e-9, 15e-9],
-    'kick_vr4':  150000,
+    'kick_vr4':  149000,
     'kick_load': 390000,
 }
 

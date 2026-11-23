@@ -60,12 +60,12 @@ HIT_S        = 0.020     # Trigger pulse duration [s] (was 960 samples at 48 kHz
 # Tonal voices: 0.3046 = (R13/3.9M) / (1/5 * 10k/(78k + 10k)) keeps the mix
 # unchanged after the twin-T output fix (pre-amp input, same node as sd/cymb).
 GAIN = {
-    'bd':    0.3046,
-    'noise': 6.00,      # NoiseVoices (snare + cymbals + maracas, one output, C15)
-    'hb':    0.3046,
-    'lb':    0.3046,
-    'cd':    0.3046,
-    'cl':    0.3046,
+    'bd':    1.0,
+    'noise': 1.2,      # NoiseVoices (snare + cymbals + maracas, one output, C15)
+    'hb':    1.0,
+    'lb':    1.0,
+    'cd':    1.0,
+    'cl':    1.0,
 }
 
 

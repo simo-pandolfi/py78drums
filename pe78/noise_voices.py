@@ -294,7 +294,7 @@ class NoiseVoices:
     L2, R54 = 100e-3, 4700.0
     L_RSER = 61.662         # [Ohm] series resistance of L1, L2 (.asc); Rpar left out (D5)
     VR9 = 220e3             # [Ohm] balance pot, linear (user)
-    VR9_POS_DEFAULT = 25e3 / 220e3
+    VR9_POS_DEFAULT = 80e3 / 220e3
     R55, C31, Rload = 22e3, 0.1e-6, 10e3
 
     def __init__(self, fs, vr9_pos=None):
