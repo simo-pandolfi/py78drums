@@ -5,10 +5,9 @@ SPDX-License-Identifier: MIT OR Apache-2.0
 ==============================================================
 WDF Snare Drum Voice — Analysis
 Test script for the Snare Drum model.
-Includes diagnostics for the envelope generator circuit (D7 diode issue).
+Regression check of the envelope generator (D7 must conduct).
 """
 import sys, os
-print('\n'.join(sys.path))
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 import numpy as np
@@ -51,7 +50,6 @@ noise = np.random.normal(0, 1, n_samples)
 output = np.zeros(n_samples)
 
 for i in range(n_samples):
-#    output[i] = snare.model.process_sample(trigger[i], noise[i] * 0.04)
     output[i] = snare.tick(trigger[i], 0.0, 0.0, 0.0)
 
 peak   = np.max(np.abs(output))
@@ -68,5 +66,5 @@ else:
 save_normalized_wav("snare_noise.wav", output, fs)
 
 plt.plot(output)
-plt.title("WDF Snare Output (Collector Node)")
-plt.show()
+plt.title("WDF Snare Output (on RLoad)")
+plt.show()

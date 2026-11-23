@@ -51,8 +51,8 @@ def simulate(seed=42):
     Runs the simulation with three separate pulses (LC, SC, MR).
 
     Note on noise:
-      noise_sample has sigma=1; the NOISE_AMP=0.04 factor is applied
-      internally by tick(). Do not prescale the noise.
+      noise_sample has sigma=1; tick() scales it by NOISE_AMP =
+      noise_amp(fs) (pe78/noise.py). Do not prescale the noise.
     """
     drum = NoiseVoices(FS)          # C15: snare idle
 
@@ -89,8 +89,9 @@ def simulate(seed=42):
         V_c24[i] = drum._V_c24   # SC hold capacitor
         V_c26[i] = drum._V_c26   # MR hold capacitor
 
-    # gm derived from V_env — Ebers-Moll formula identical to internal _step_tr4.
-    # gm = hFE · Is_b4 · exp(V_env / Vt) / Vt (no clamp, C11).
+    # gm derived from V_env with the base law of the bases root (Shockley,
+    # Is_b4, Vt) and Ic = hFE*Ib: gm = hFE · Is_b4 · exp(V_env / Vt) / Vt
+    # (no clamp, C11).
     Ic_em = drum.hFE * drum.Is_b4 * np.exp(np.clip(V_env / drum.Vt, -40.0, 40.0))
     gm = Ic_em / drum.Vt
 
@@ -117,7 +118,7 @@ def print_analysis(res):
     print(f'  MR  τ = R46×C26  = {drum.R46 * drum.C26 * 1000:.0f} ms')
     print(f'  (L2+Rser)||R54 pole at = {(drum.R54 + drum.L_RSER) / (2 * np.pi * drum.L2):.0f} Hz')
 
-    # C29 pole with r_pi calculated via Ebers-Moll at V_env = 0.7 V (typical point)
+    # C29 pole with r_pi from the base law at V_env = 0.7 V (typical point)
     V_typ    = 0.7
     Ic_typ   = drum.hFE * drum.Is_b4 * np.exp(np.clip(V_typ / drum.Vt, -40.0, 40.0))
     gm_typ   = Ic_typ / drum.Vt
@@ -127,7 +128,7 @@ def print_analysis(res):
 
     gm = res['gm']
     gm_ss_lc = drum.hFE * drum.Is_b4 * np.exp(np.clip(0.62 / drum.Vt, -40, 40)) / drum.Vt
-    print('=== TR4 (Ebers-Moll) ===')
+    print('=== TR4 (base law, Ic = hFE*Ib) ===')
     print(f'  Is_b          = {drum.Is_b4:.3e} A')
     print(f'  gm_ss @ 620mV = {gm_ss_lc*1e3:.2f} mA/V  (LC operating point)')
     print(f'  gm_max        = {gm.max()*1e3:.3f} mA/V  at t = {gm.argmax()/FS*1000:.1f} ms')
@@ -225,4 +226,4 @@ if __name__ == '__main__':
 
 
     plot(res, 'wdf_cymb_test.png')
-    save_wav(res['V_out'], 'wdf_cymb_test.wav')
+    save_wav(res['V_out'], 'wdf_cymb_test.wav')

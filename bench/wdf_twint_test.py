@@ -6,8 +6,8 @@ SPDX-License-Identifier: MIT OR Apache-2.0
 WDF Twin-T Drum Voices — Analysis and VR4 range finder
 Tests and validates all five tonal drum voices.
 
-Usage (from bench root):
-    python -m pe78.wdf_twint_test
+Usage (from the py78drums root; outputs in the current folder):
+    python bench/wdf_twint_test.py
 """
 import sys, os, warnings
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
@@ -325,4 +325,4 @@ for row, (name, params, _, color) in enumerate(INSTRUMENTS):
     ax.legend(fontsize=7, loc='upper left')
 
 plt.savefig("rfb_range.png", dpi=120, bbox_inches='tight')
-plt.show()
+plt.show()

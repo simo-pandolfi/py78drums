@@ -2,12 +2,12 @@
 #Copyright (c) 2026 Simone Pandolfi
 #SPDX-License-Identifier: MIT OR Apache-2.0
 """
-wdf_rithm.py — PE 1978 Noise Drums - Rhythmic Sequencer
+wdf_rithm.py — PE 1978 Drums - Rhythm Sequencer
 ==============================================================
-A 16-step sequencer featuring two-beat rhythms inspired by the M253 AC, 
-utilizing all physical instrument models from the PE 1978 circuit.
-The kit has been expanded with Conga Drums to support M252-style 
-rhythmic synthesis.
+A 32-step (two-bar) sequencer with rhythms inspired by the M252AA / M253,
+using all the voice models of the PE 1978 circuit.
+The kit has been expanded with a Conga (SGS-Ates Technical Note 131) to
+support M252-style rhythms.
 
 Instruments:
   bd     Bass Drum          (TonalDrum)
@@ -56,9 +56,7 @@ BPM_DEFAULT  = 100
 STEPS        = 32
 HIT_S        = 0.020     # Trigger pulse duration [s] (was 960 samples at 48 kHz)
 
-# Instrument gain on master bus (relative balancing).
-# Tonal voices: 0.3046 = (R13/3.9M) / (1/5 * 10k/(78k + 10k)) keeps the mix
-# unchanged after the twin-T output fix (pre-amp input, same node as sd/cymb).
+# Instrument gain on master bus (relative balancing, chosen by ear).
 GAIN = {
     'bd':    1.0,
     'noise': 1.2,      # NoiseVoices (snare + cymbals + maracas, one output, C15)
@@ -111,10 +109,11 @@ def load_stems(path):
 # Snare, long/short cymbal and maracas are one analog circuit (PE 1978 Fig. 6):
 # shared noise node N, shared balance pot VR9 and output R55/C31. They are one
 # persistent NoiseVoices object (C15) fed with the four triggers of the current
-# step; its single output goes to the master bus with GAIN['noise'] (= the old
-# snare gain: the snare level is unchanged, the cymbal level is now set by VR9).
-# GAIN keeps the mix balance chosen by ear (C16, D2-B): with one gain for all
-# voices the noise voices would be 25.9 dB lower than here (physical bus).
+# step; its single output goes to the master bus with GAIN['noise']. The
+# balance of the snare against the cymbals and maracas is set in the circuit
+# by VR9 (NoiseVoices.VR9_POS_DEFAULT). GAIN keeps the mix balance chosen by
+# ear (C16, D2-B): GAIN['noise'] = 1.2 against 1.0 of the tonal voices puts
+# the noise section 1.6 dB above the physical bus.
 # bus_load_gains() applies the mutual load of the two sections on VR10.
 
 
@@ -254,7 +253,7 @@ def main():
     rhythm_list = list(PATTERNS.keys())
 
     print("\n" + "="*54)
-    print("  PE 1978 Noise Drums — M253 AC Sequencer (15 rhythms)")
+    print(f"  PE 1978 Drums — Rhythm Sequencer ({len(rhythm_list)} rhythms)")
     print("="*54)
     for i, name in enumerate(rhythm_list, 1):
         print(f"  {i:2d}.  {name:<14}")
@@ -299,4 +298,4 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    main()

@@ -5,7 +5,9 @@
 PE Tonal Drum Voices — Edge Detector + Twin-T Oscillator
 =========================================================
 Practical Electronics, January 1978 — Fig. 7.
-Conga added from M252-M253 SGS-Ates TechnicalNotes 131
+Conga: not in PE78. Added from SGS-Ates Technical Note 131 (M252/M253 rhythm
+generators), with the same edge detector and twin-T and different capacitors.
+In the circuit it would need a fifth gate (IC4, CD4011A, has four).
 
 Voices: Bass Drum (IC4a), Hi Bongo (IC4b), Low Bongo (IC4c),
         Claves (IC4d), Conga (same structure, different capacitor values).

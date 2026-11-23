@@ -9,11 +9,11 @@ M253 drum machine. The noise voices (snare, cymbals, maracas) are one circuit
 and one object: pe78.noise_voices.NoiseVoices (C15).
 
 Voices:
-  bd     Bass Drum          (AnalogDrum, tonal)
-  hb     Hi Bongo           (AnalogDrum, tonal) -- also triggered by the snare (D6)
-  lb     Low Bongo          (AnalogDrum, tonal)
-  cl     Claves             (AnalogDrum, tonal)
-  cd     Conga              (AnalogDrum, tonal)
+  bd     Bass Drum          (TonalDrum)
+  hb     Hi Bongo           (TonalDrum) -- also triggered by the snare (D6)
+  lb     Low Bongo          (TonalDrum)
+  cl     Claves             (TonalDrum)
+  cd     Conga              (TonalDrum) -- not in PE78, from SGS-Ates TN 131
   sd     Snare Drum         (NoiseVoices, noise-based)
   lc     Long Cymbal        (NoiseVoices, noise-based)
   sc     Short Cymbal       (NoiseVoices, noise-based)
@@ -32,9 +32,9 @@ Note on hb/sd trigger sharing:
   error measured in tests/test_hb_line.py).
 
 Instrument parameter dictionaries:
-  All VR4 values represent the potentiometer alone (not R10+VR4).
-  TwinTDrum adds R10=150 kOhm internally.
-  Default VR4=150 kOhm -> r_bias = R10+VR4 = 300 kOhm.
+  All VR4 values represent the potentiometer alone (not R10+VR4), 148 ... 150
+  kOhm per voice. TwinTDrum adds R10=150 kOhm internally:
+  r_bias = R10+VR4 = 298 ... 300 kOhm.
 """
 
 import numpy as np
@@ -169,7 +169,7 @@ class TonalDrum(BaseWDFDrum):
 # ---------------------------------------------------------------------------
 #  Instrument parameter dictionaries
 #  kick_vr4 = VR4 alone (TwinTDrum adds R10=150 kOhm internally)
-#  kick_vr4 default = 150 kOhm -> r_bias = 300 kOhm
+#  r_bias = R10 + kick_vr4
 # ---------------------------------------------------------------------------
 
 BDO_PARAMS = {
@@ -177,7 +177,7 @@ BDO_PARAMS = {
     'edge_c':    150e-9,                         # C8
     'kick_r':    [68000, 68000, 10000],          # R11, R12, R16
     'kick_c':    [150e-9, 47e-9, 47e-9],         # C5, C6, C7
-    'kick_vr4':  148000,                         # VR4 (r_bias = R10+VR4 = 300 kOhm)
+    'kick_vr4':  148000,                         # VR4 (r_bias = R10+VR4 = 298 kOhm)
     'kick_load': 390000,                         # R41 (390 kOhm, Fig. 7)
 }
 
@@ -237,8 +237,8 @@ def bus_load_gains(vr9_pos=None):
         g_noise = [ (RL||R_t)/(R_n + RL||R_t) ] / [ RL/(R_n + RL) ]
         g_tonal = [ (RL||R_n)/(R_t + RL||R_n) ] / [ RL/(R_t + RL) ]
 
-    Default VR9 (25k/195k): g_noise = 0.905 (-0.87 dB), g_tonal = 0.833
-    (-1.59 dB). Against the nodal AC solution with C21, C31 and the
+    Default VR9 (80k/140k): g_noise = 0.899 (-0.93 dB), g_tonal = 0.892
+    (-1.00 dB); with the VR9 of the .asc (25k/195k): 0.905, 0.833. Against the nodal AC solution with C21, C31 and the
     collectors: within 0.06 dB from 200 Hz to 5 kHz, up to 0.6 dB at 50 Hz
     (tests/test_bus_load.py). TODO (D1-A, to re-evaluate): one bus node O
     inside the WDF of the noise section, with the tonal branch as a leaf.

@@ -28,8 +28,9 @@ Interface used by the models
   (i * VR8U, VR8U). With r_base the AC resistance at the transistor base:
       v_b = i * VR8U * r_base / (VR8U + r_base) * s*tau / (1 + s*tau)
       tau = C * (VR8U + r_base)
-  C28 and C29 share node N, so each voice also loads the other; this
-  coupling is not modelled here (voices simulated separately).
+  C28 and C29 share node N, so each voice also loads the other:
+  NoiseVoices (pe78/noise_voices.py, C15) solves the TR3 and TR4 bases and
+  node N together.
 """
 
 import math

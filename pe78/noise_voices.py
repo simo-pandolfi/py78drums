@@ -60,7 +60,8 @@ TR3/TR4 are linear in the collector (no saturation, no high injection):
 tests/test_linear_region.py.
 
 VR9: one 220 kOhm linear pot (user, 2026-11-20); vr9_pos = VR9U/VR9, default
-25/220 (VR9U 25 kOhm, VR9L 195 kOhm as in the .asc).
+80/220 (VR9U 80 kOhm, VR9L 140 kOhm), chosen for the level balance of the
+mix; the .asc has 25/220 (VR9U 25 kOhm, VR9L 195 kOhm).
 """
 
 import numpy as np
