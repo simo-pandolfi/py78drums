@@ -277,11 +277,35 @@ The noise voices (Fig. 6) are compared against the LTspice schematic in
   - E2: `RTypeAdaptor` up-port reflected wave
   - E3: `OpenCircuit` port resistance
 - [pywdf](https://github.com/gusanthon/pywdf) — WDF framework (MIT)
-  Anthon, G., Lizarraga-Seijas, X., Font, F. (2023). *PYWDF: an open source
-  library for prototyping and simulating wave filter circuits in Python*. DAFx23.
+  Anthon, G., Lizarraga-Seijas, X., Font, F. (2023). *pywdf: An Open Source
+  Library for Prototyping and Simulating Wave Digital Filter Circuits in
+  Python*. Proc. DAFx-23, pp. 335–341. https://repositori.upf.edu/handle/10230/57903
 - [chowdsp_wdf](https://github.com/Chowdhury-DSP/chowdsp_wdf) — C++ WDF library
   on which pywdf is based (Jatin Chowdhury)
 - numpy, scipy, soundfile
+
+---
+
+## Citing
+
+py78drums is built on pywdf. If you use it in research, please cite the
+pywdf paper:
+
+```bibtex
+@inproceedings{anthon_pywdf_2023,
+  author    = {Anthon, Gustav and Lizarraga-Seijas, Xavier and Font, Frederic},
+  title     = {{pywdf}: An Open Source Library for Prototyping and Simulating
+               Wave Digital Filter Circuits in {Python}},
+  booktitle = {Proceedings of the 26th International Conference on Digital
+               Audio Effects (DAFx-23)},
+  editor    = {Fontana, F. and Willemsen, S.},
+  address   = {Copenhagen, Denmark},
+  publisher = {Aalborg University},
+  year      = {2023},
+  pages     = {335--341},
+  url       = {https://repositori.upf.edu/handle/10230/57903}
+}
+```
 
 ---
 
